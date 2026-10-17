@@ -1,0 +1,105 @@
+# Doxyfile -- API documentation for argus_safety_controller
+#
+#   doxygen                                   build (run from the repo root)
+#   xdg-open build/html/index.html            view
+#
+# Only the settings that differ from Doxygen's defaults are listed; every
+# tag not named here keeps its default. `doxygen -g reference.cfg` writes
+# the full list with every tag explained, if you need to look one up.
+#
+# Written for Doxygen 1.9.1 (Ubuntu 22.04's package); also checked
+# against 1.9.8 (Ubuntu 24.04's).
+
+#---------------------------------------------------------------------------
+# Project
+#---------------------------------------------------------------------------
+
+PROJECT_NAME           = "Argus Safety Controller"
+PROJECT_BRIEF          = "Bare-metal Zynq-7020 PS firmware: acquisition, replay, UDP telemetry"
+
+# build/ is already in .gitignore, so generated pages never get committed.
+# One level only: Doxygen creates the output directory but not its parents.
+OUTPUT_DIRECTORY       = build
+
+#---------------------------------------------------------------------------
+# What to read
+#---------------------------------------------------------------------------
+
+# The firmware sources, with README.md as the front page. RUNBOOK.md stays
+# out: Doxygen's Markdown reads a backtick closed by an apostrophe as a
+# quotation (`like this'), which garbles RUNBOOK's troubleshooting table,
+# so it is read on GitHub instead.
+INPUT                  = README.md \
+                         safety_controller/src
+FILE_PATTERNS          = *.c \
+                         *.h
+
+# Not recursive: every first-party source sits directly in src/, so the
+# vendored lwIP tree under src/lwip/ stays out without an exclude list.
+RECURSIVE              = NO
+
+USE_MDFILE_AS_MAINPAGE = README.md
+
+# All sources share one directory, so list them by file name alone.
+FULL_PATH_NAMES        = NO
+
+#---------------------------------------------------------------------------
+# How to read it
+#---------------------------------------------------------------------------
+
+# C, not C++: no "classes"; structs are listed as data structures.
+OPTIMIZE_OUTPUT_FOR_C  = YES
+
+# The first sentence of a /** ... */ comment becomes its one-line summary,
+# so an existing /* ... */ comment turns into documentation by adding one
+# asterisk.
+JAVADOC_AUTOBRIEF      = YES
+
+# Show every file, function, macro and variable, documented or not, so the
+# site is complete from the first run. The README shows how to list what
+# still lacks a doc comment.
+EXTRACT_ALL            = YES
+
+# main.c keeps most of its logic in static functions; show those too.
+EXTRACT_STATIC         = YES
+
+# argus_wire.h packs its structs with __attribute__((packed)). Doxygen
+# does not understand the attribute, and without this the three packed
+# structs drop out of the docs; it is defined away for Doxygen only.
+MACRO_EXPANSION        = YES
+EXPAND_ONLY_PREDEF     = YES
+PREDEFINED             = "__attribute__(x)="
+
+#---------------------------------------------------------------------------
+# Output
+#---------------------------------------------------------------------------
+
+GENERATE_LATEX         = NO
+GENERATE_TREEVIEW      = YES
+
+# Cross-referenced source pages, and "References" / "Referenced by" lists
+# on every function.
+SOURCE_BROWSER         = YES
+REFERENCED_BY_RELATION = YES
+REFERENCES_RELATION    = YES
+
+#---------------------------------------------------------------------------
+# Graphs (needs Graphviz: sudo apt install graphviz)
+#---------------------------------------------------------------------------
+
+HAVE_DOT               = YES
+CALL_GRAPH             = YES
+CALLER_GRAPH           = YES
+DOT_IMAGE_FORMAT       = svg
+
+#---------------------------------------------------------------------------
+# Messages
+#---------------------------------------------------------------------------
+
+# Print warnings only, not a line for every file processed. A clean run
+# prints nothing.
+QUIET                  = YES
+
+# Warn when a documented function leaves a parameter or its return value
+# undocumented.
+WARN_NO_PARAMDOC       = YES
