@@ -1,0 +1,39 @@
+# This is a virtual manifest: it defines a workspace but is not itself a
+# crate, so there is no [package] table and nothing builds at this level.
+# Every crate under rust/ joins as a member and shares one Cargo.lock, one
+# target/ directory, and the profiles below.
+#
+# Hybrid stage: the replay protocol core moves to Rust and links into the
+# Vitis C app as a static library. lwIP, the BSP, the BRAM mapping and the
+# main loop stay in C for now.
+[workspace]
+resolver = "3"
+
+members = []
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+license = "Apache-2.0"
+publish = false #private repo; makes `cargo publish` refuse to run
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+indexing_slicing = "deny"
+undocumented_unsafe_blocks = "deny"
+cast_possible_truncation = "warn"
+
+[profile.release]
+panic = "abort"
+lto = true
+codegen-units = 1
+debug = true
+
+[profile.dev]
+panic = "abort"

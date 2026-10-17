@@ -62,3 +62,4 @@ vivado_pid*.str
 vivado*.backup.jou
 vivado*.backup.log
 .Xil/
+rust/target/
