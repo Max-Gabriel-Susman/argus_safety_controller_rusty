@@ -7,6 +7,10 @@
 //! The crate is `no_std`: it uses `core` only, with no allocator and no
 //! operating system underneath, so the same code runs in host tests and on
 //! the Cortex-A9.
+//!
+//! It also forbids `unsafe` code. The one job here that needs it, turning
+//! bytes into structs, belongs to zerocopy, whose derives check at compile
+//! time that each struct is safe to convert.
 #![no_std]
-
+#![forbid(unsafe_code)]
 pub mod crc;
