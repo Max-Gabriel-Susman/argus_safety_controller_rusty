@@ -7,6 +7,7 @@
 
 use argus_fw_core::acq::{self, FrameCheck, ReplayStatus};
 use argus_fw_core::lines::*;
+use argus_fw_core::phy::{Duplex, Link, PhyId, Speed};
 use argus_fw_core::timing::Timing;
 
 fn timing(samples: &[u32]) -> Timing {
@@ -626,4 +627,42 @@ fn fault() {
     for (kind, addr, line) in cases {
         assert_eq!(Fault { kind, addr }.to_string(), line);
     }
+}
+
+#[test]
+fn eth_phy() {
+    // The Arty's RTL8211E, revision 5.
+    let id = PhyId {
+        id1: 0x001C,
+        id2: 0xC915,
+    };
+    assert_eq!(EthPhy { id }.to_string(), "eth: phy 001c:c915\r\n");
+}
+
+#[test]
+fn eth_link() {
+    let cases = [
+        (Speed::Mbps1000, Duplex::Full, "eth: link up 1000 full\r\n"),
+        (Speed::Mbps100, Duplex::Full, "eth: link up 100 full\r\n"),
+        (Speed::Mbps10, Duplex::Half, "eth: link up 10 half\r\n"),
+    ];
+    for (speed, duplex, line) in cases {
+        assert_eq!(EthLinkUp { speed, duplex }.to_string(), line);
+    }
+    assert_eq!(ETH_LINK_DOWN, "eth: link down\r\n");
+}
+
+#[test]
+fn eth_speed_assumed() {
+    // A link with autonegotiation complete and PHYSR unresolved.
+    assert_eq!(
+        EthSpeedAssumed { physr: 0x2400 }.to_string(),
+        "eth: speed unresolved (physr 2400), assuming 1000 full\r\n"
+    );
+    // The link-up line that follows it names the same mode.
+    let (speed, duplex) = Link::ASSUMED;
+    assert_eq!(
+        EthLinkUp { speed, duplex }.to_string(),
+        "eth: link up 1000 full\r\n"
+    );
 }

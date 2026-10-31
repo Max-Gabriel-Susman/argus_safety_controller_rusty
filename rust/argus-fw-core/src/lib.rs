@@ -11,6 +11,8 @@
 //! - [`console`]: the ring behind the non-blocking console, from
 //!   `argus_console.c`.
 //! - [`lines`]: the exact text of every console line the C firmware prints.
+//! - [`phy`]: the board's RTL8211E Ethernet PHY over an MDIO trait: find
+//!   it, reset it, autonegotiate and read back the link.
 //! - [`timing`]: the per-report sums, maxima and averages in the stream
 //!   lines.
 //!
@@ -21,4 +23,5 @@
 pub mod acq;
 pub mod console;
 pub mod lines;
+pub mod phy;
 pub mod timing;

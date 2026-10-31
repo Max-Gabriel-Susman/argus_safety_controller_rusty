@@ -14,14 +14,16 @@
 //! counters the C reads.
 //!
 //! A few lines have no C equivalent: [`Banner`], [`Clk`], [`Heartbeat`],
-//! [`PrintTest`], [`PrintTime`], [`Panic`] and [`Fault`]. They follow the
-//! same rules.
+//! [`PrintTest`], [`PrintTime`], [`Panic`], [`Fault`] and the `eth:` lines
+//! ([`EthPhy`], [`EthLinkUp`], [`EthSpeedAssumed`], [`ETH_LINK_DOWN`]).
+//! They follow the same rules.
 
 use core::fmt::{self, Display, Formatter};
 
 use argus_wire::frame::CHANNELS;
 
 use crate::acq::{self, FrameCheck, ReplayStatus};
+use crate::phy::{Duplex, Link, PhyId, Speed};
 use crate::timing::Timing;
 
 /// `argus-fw <rev> boot`: the first line, naming the commit the image was
@@ -467,6 +469,67 @@ impl Display for AcqFeatures {
         )
     }
 }
+
+/// `eth: phy %04x:%04x`: the PHY's two identifier registers, once it has
+/// been found. New: the C's lwIP port prints its own PHY lines.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EthPhy {
+    /// The identifier registers, PHYID1 then PHYID2.
+    pub id: PhyId,
+}
+
+impl Display for EthPhy {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "eth: phy {:04x}:{:04x}\r\n", self.id.id1, self.id.id2)
+    }
+}
+
+/// `eth: link up <mbps> <half|full>`: the link came up, at the speed and
+/// duplex the MAC is now set to. New.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EthLinkUp {
+    /// The link speed.
+    pub speed: Speed,
+    /// The link duplex.
+    pub duplex: Duplex,
+}
+
+impl Display for EthLinkUp {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "eth: link up {} {}\r\n",
+            self.speed.mbps(),
+            self.duplex.as_str()
+        )
+    }
+}
+
+/// `eth: speed unresolved (physr %04x), assuming 1000 full`: printed before
+/// [`EthLinkUp`] when the PHY finished autonegotiating but its status
+/// register gives no speed ([`Link::Assumed`]),
+/// the case that made the C firmware force 1000 Mb/s. New.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EthSpeedAssumed {
+    /// The PHY specific status register as read.
+    pub physr: u16,
+}
+
+impl Display for EthSpeedAssumed {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let (speed, duplex) = Link::ASSUMED;
+        write!(
+            f,
+            "eth: speed unresolved (physr {:04x}), assuming {} {}\r\n",
+            self.physr,
+            speed.mbps(),
+            duplex.as_str()
+        )
+    }
+}
+
+/// The link went down. New.
+pub const ETH_LINK_DOWN: &str = "eth: link down\r\n";
 
 /// `replay ok: [0][0]=%04x [0][5]=%04x [1][0]=%04x [146][95]=%04x`: four
 /// samples of the one-shot fetch, `[sample][channel]`, enough to tell a
