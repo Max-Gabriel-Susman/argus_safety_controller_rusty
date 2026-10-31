@@ -23,6 +23,8 @@ workspace = true
 # revision: the HAL's API moves between commits, and every crate below has to
 # agree on the same register definitions.
 [dependencies]
+# The console lines, and the rest of what the firmware decides.
+argus-fw-core = { path = "../argus-fw-core" }
 # Runtime: the reset vector, the exception vectors, the MMU table and z7link.x.
 zynq7000-rt = { git = "https://github.com/ustgt-irs/zynq7000-rs", rev = "3a1f1bd7cb3ee8ed66bc55ee46849443da30ab79" }
 # The peripheral access crate: register blocks for every PS peripheral.
