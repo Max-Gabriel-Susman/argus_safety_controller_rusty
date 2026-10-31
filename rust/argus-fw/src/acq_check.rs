@@ -1,5 +1,5 @@
 //! The acquisition chain's checks: `main.c`'s `acq_smoke_test()` at boot,
-//! and the feature loop that reads every new bin after it.
+//! and the frame check the telemetry task repeats every 100 bins.
 //!
 //! The smoke test runs before any networking on purpose: an AXI read of
 //! unprogrammed PL hangs the A9 with no timeout, and if that happens it
@@ -9,14 +9,12 @@
 //!
 //! What changed from the C: its `usleep()` calls busy-wait, these sleeps
 //! are embassy-time timers, so the console drains meanwhile (the C calls
-//! `argus_console_flush()` instead). The feature loop is a task that polls
-//! FEATURE_INDEX every millisecond rather than on every pass of a
-//! superloop; a bin is 50 ms, so a new one is seen within 2% of a bin.
+//! `argus_console_flush()` instead).
 
-use argus_fw_core::acq::{self, BinCounter};
+use argus_fw_core::acq;
 use argus_fw_core::lines::{
     ACQ_FEATURES_HOLD_TIMEOUT, ACQ_FRAME_HOLD_TIMEOUT, AcqFeatures, AcqFrame, AcqId, AcqStatus,
-    AcqTiming, Feat,
+    AcqTiming,
 };
 use argus_wire::frame::CHANNELS;
 use embassy_time::{Duration, Timer};
@@ -39,10 +37,6 @@ const FIRST_BIN_POLLS: u32 = 100;
 
 /// See [`FIRST_BIN_POLLS`].
 const FIRST_BIN_POLL: Duration = Duration::from_millis(1);
-
-/// How often the feature loop looks at FEATURE_INDEX. One GP0 read a
-/// millisecond costs the executor about 0.1% of its time.
-const BIN_POLL: Duration = Duration::from_millis(1);
 
 /// The C's `acq_smoke_test()`: the ID line, enable, the sweep rate and
 /// STATUS, the read timing, one frame check and the first bin's features.
@@ -111,38 +105,9 @@ fn time_reads(acq: &Acq, gtc_hz: Hertz) -> AcqTiming {
 /// The C's `acq_frame_check()`: one frame under the hold, its identity
 /// check, and the `acq frame` line. `ext` says the chips play the replay,
 /// whose sample index has no expected value.
-fn frame_check(acq: &mut Acq, ext: bool) {
+pub fn frame_check(acq: &mut Acq, ext: bool) {
     match acq.read_frame() {
         Ok((frame_index, frame)) => console!("{}", AcqFrame::new(frame_index, &frame, ext)),
         Err(_) => console!("{ACQ_FRAME_HOLD_TIMEOUT}"),
-    }
-}
-
-/// `main.c`'s main loop, the acquisition half: reads every new feature bin
-/// under the feature hold and, every 100 bins (5 s), prints the `feat:`
-/// line and runs the frame check.
-///
-/// A hold that never took effect is a fabric problem, not a reason to use
-/// a torn bin: the bin is skipped and counted. The telemetry frame each bin
-/// becomes, and the `tx` line, are not here yet; the bins read stand in for
-/// the frames sent in deciding when to report.
-#[embassy_executor::task]
-pub async fn feature_loop(mut acq: Acq) -> ! {
-    let mut bins = BinCounter::new();
-    loop {
-        Timer::after(BIN_POLL).await;
-        if !bins.is_new(acq.feature_index()) {
-            continue;
-        }
-        match acq.read_features() {
-            Ok(features) => {
-                if bins.read(features.bin) {
-                    console!("{}", Feat::new(&features, acq.feat_dropped()));
-                    let ext = acq.ext_mode();
-                    frame_check(&mut acq, ext);
-                }
-            }
-            Err(_) => bins.skipped(acq.feature_index()),
-        }
     }
 }

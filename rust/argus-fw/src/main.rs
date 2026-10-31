@@ -3,9 +3,9 @@
 //! For now: the HAL, embassy-time on the global timer and the console. It
 //! prints the banner the harness anchors on, the C's first line, the clocks
 //! as the registers set them, a timed long print and the C's replay clock
-//! check; runs the C's acquisition smoke test; then starts the feature
-//! loop, brings up GEM0 and the IP stack (it answers ping at 192.168.1.10)
-//! and prints a heartbeat every 5 s. Every print goes through the console
+//! check; runs the C's acquisition smoke test; brings up GEM0 and the IP
+//! stack (it answers ping at 192.168.1.10); then starts the telemetry task,
+//! which sends every feature bin to the host. Every print goes through the console
 //! ring and returns at once; a task of its own feeds the UART. A panic or a
 //! CPU exception prints one line saying what and where, then parks the
 //! core.
@@ -22,15 +22,16 @@ mod acq_check;
 mod bram;
 mod console;
 mod net;
+mod telemetry;
 
 use aarch32_cpu::asm::nop;
 use argus_fw_core::lines::{
-    Banner, Clk, Fault, FaultKind, Heartbeat, INITIALIZING, PRINT_TEST_BYTES, Panic, PrintTest,
-    PrintTime, ReplayClock,
+    Banner, Clk, Fault, FaultKind, INITIALIZING, PRINT_TEST_BYTES, Panic, PrintTest, PrintTime,
+    ReplayClock,
 };
 use core::panic::PanicInfo;
 use embassy_executor::Spawner;
-use embassy_time::{Duration, Instant, Ticker, Timer};
+use embassy_time::{Duration, Instant, Timer};
 use zynq7000_hal::{clocks, generic_interrupt_handler, gpio, gtc, time::Hertz, uart};
 
 use crate::console::{console, emergency_print};
@@ -45,9 +46,6 @@ const PS_CLOCK_FREQUENCY: Hertz = Hertz::from_raw(50_000_000);
 
 /// The commit this image was built from, set by build.rs.
 const REV: &str = env!("ARGUS_FW_REV");
-
-/// How often the heartbeat line is printed.
-const HEARTBEAT_PERIOD: Duration = Duration::from_secs(5);
 
 #[zynq7000_rt::entry]
 fn entry_point() -> ! {
@@ -106,28 +104,19 @@ async fn main(spawner: Spawner) -> ! {
         park()
     };
     acq_check::smoke_test(&mut acq, clocks.arm_clocks().cpu_3x2x_clk()).await;
-    let Ok(feature_loop) = acq_check::feature_loop(acq) else {
+
+    // When there is no network (no PHY found) the bins are still read and
+    // reported, and every frame counts as unsent.
+    let stack = net::start(spawner, periphs.eth_0, mio.mio9, &clocks).await;
+    let link = stack.and_then(|stack| Some(telemetry::Link::new(stack, telemetry::socket(stack)?)));
+    let Ok(telemetry) = telemetry::telemetry(acq, link) else {
         park()
     };
-    spawner.spawn(feature_loop);
+    spawner.spawn(telemetry);
 
-    // The telemetry and replay sockets will be opened on this stack. When
-    // there is none (no PHY found) the acquisition side still runs.
-    let _stack = net::start(spawner, periphs.eth_0, mio.mio9, &clocks).await;
-
-    let mut ticker = Ticker::every(HEARTBEAT_PERIOD);
-    let mut beats: u32 = 0;
+    // Every job is a task now; this one has nothing left to do.
     loop {
-        ticker.next().await;
-        beats = beats.wrapping_add(1);
-        console!(
-            "{}",
-            Heartbeat {
-                n: beats,
-                con_drops: console::drops(),
-                con_max: console::take_max_msg(),
-            }
-        );
+        core::future::pending::<()>().await;
     }
 }
 
