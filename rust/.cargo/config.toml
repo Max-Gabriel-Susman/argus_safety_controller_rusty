@@ -1,0 +1,11 @@
+# Flags for the Cortex-A9 build only. Host builds (cargo test) are untouched,
+# and nothing here picks a default target: the firmware is built with an
+# explicit --target, by tools/build-fw.sh.
+[target.armv7a-none-eabihf]
+rustflags = [
+  "-Ctarget-cpu=cortex-a9",
+  "-Ctarget-feature=+vfp3",
+  "-Ctarget-feature=+neon",
+  "-Clink-arg=-Tz7link.x",
+  "-Cforce-frame-pointers=yes",
+]
