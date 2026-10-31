@@ -29,6 +29,9 @@ publish = false #private repo; makes `cargo publish` refuse to run
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
+# Every public item carries rustdoc. The gate builds with -D warnings, so a
+# public item added without a doc comment fails it.
+missing_docs = "warn"
 
 [workspace.lints.clippy]
 unwrap_used = "deny"

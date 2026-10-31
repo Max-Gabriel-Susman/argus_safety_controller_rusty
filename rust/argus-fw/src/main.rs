@@ -1,6 +1,6 @@
 //! The Argus safety controller firmware, for the Zynq-7020 on the Arty Z7-20.
 //!
-//! For now: the HAL, embassy-time on the global timer and the console. It
+//! It sets up the HAL, embassy-time on the global timer and the console;
 //! prints the banner the harness anchors on, the C's first line, the clocks
 //! as the registers set them, a timed long print and the C's replay clock
 //! check; runs the C's acquisition smoke test; brings up GEM0 and the IP

@@ -26,4 +26,9 @@ pub mod frame;
     clippy::indexing_slicing,
     reason = "bindgen's layout checks index inside const items: a bad index fails the build"
 )]
+#[allow(
+    missing_docs,
+    reason = "the docs are argus_wire.h's comments, carried over where it has them; \
+              the header is argus_core's, so a missing one is added there, not here"
+)]
 pub mod generated;
