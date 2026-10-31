@@ -98,16 +98,25 @@ fn bin_counter_follows_the_main_loop() {
     // last_bin starts at 0: bin 0 is not new, bin 1 is.
     assert!(!bins.is_new(0));
     assert!(bins.is_new(1));
-    assert!(!bins.read(1));
+    assert_eq!(bins.read(1), acq::Due::default());
     assert!(!bins.is_new(1));
     // A hold that never took effect: skipped, and the index it read then
     // is taken as seen.
     bins.skipped(3);
     assert!(!bins.is_new(3));
     assert_eq!((bins.read_count(), bins.skipped_count()), (1, 1));
-    // The report falls on every 100th bin read, skips not counted.
-    let due: Vec<u32> = (4..400).filter(|&bin| bins.read(bin)).collect();
-    assert_eq!(due, [102, 202, 302]);
+    // The tx line falls on every 20th bin read and the report on every
+    // 100th, skips not counted; every report is also a tx line.
+    let due: Vec<(u32, acq::Due)> = (4..400).map(|bin| (bin, bins.read(bin))).collect();
+    let tx: Vec<u32> = due.iter().filter(|(_, d)| d.tx).map(|&(b, _)| b).collect();
+    let status: Vec<u32> = due
+        .iter()
+        .filter(|(_, d)| d.status)
+        .map(|&(b, _)| b)
+        .collect();
+    let expected_tx: Vec<u32> = (22..400).step_by(20).collect();
+    assert_eq!(tx, expected_tx);
+    assert_eq!(status, [102, 202, 302]);
     assert_eq!(bins.read_count(), 397);
 }
 

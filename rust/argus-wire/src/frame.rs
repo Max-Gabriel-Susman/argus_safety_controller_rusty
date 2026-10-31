@@ -71,6 +71,12 @@ pub fn encode_frame(
     frame
 }
 
+/// The frame's 594 bytes as they go on the wire. zerocopy's `IntoBytes`
+/// does the view; this saves each caller a dependency on zerocopy.
+pub fn frame_bytes(frame: &FramePacket) -> &[u8] {
+    frame.as_bytes()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -90,7 +96,8 @@ mod tests {
             *p = u32::try_from(i).unwrap_or(0) * 1000;
         }
         let frame = encode_frame(20, 0.999_6, &channels, &power);
-        let bytes = frame.as_bytes();
+        let bytes = frame_bytes(&frame);
+        assert_eq!(bytes.len(), 594);
 
         assert_eq!(bytes.get(..4), Some(&b"SGRA"[..]), "magic, little-endian");
         assert_eq!(bytes.get(4..8), Some(&20u32.to_le_bytes()[..]));

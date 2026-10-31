@@ -16,7 +16,7 @@
 //! A few lines have no C equivalent: [`Banner`], [`Clk`], [`Heartbeat`],
 //! [`PrintTest`], [`PrintTime`], [`Panic`], [`Fault`] and the `eth:` lines
 //! ([`EthPhy`], [`EthLinkUp`], [`EthSpeedAssumed`], [`ETH_LINK_DOWN`],
-//! [`ETH_NO_PHY`], [`EthPhyUnknown`]).
+//! [`ETH_NO_PHY`], [`EthPhyUnknown`]) and [`TelemetryUnsent`].
 //! They follow the same rules.
 
 use core::fmt::{self, Display, Formatter};
@@ -645,6 +645,28 @@ impl Display for Tx {
             f,
             "tx {} bin {} skipped {}\r\n",
             self.count, self.bin, self.skipped
+        )
+    }
+}
+
+/// `telemetry: unsent link down %u refused %u`: frames not sent since boot,
+/// printed when sending resumes after one or more. New: the C ignores
+/// `udp_sendto()`'s result. It must not begin with `tx `, which the harness
+/// reads as the `tx` line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TelemetryUnsent {
+    /// Frames dropped because the link was down.
+    pub link_down: u32,
+    /// Frames the socket did not take.
+    pub refused: u32,
+}
+
+impl Display for TelemetryUnsent {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "telemetry: unsent link down {} refused {}\r\n",
+            self.link_down, self.refused
         )
     }
 }

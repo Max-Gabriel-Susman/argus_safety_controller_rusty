@@ -199,6 +199,19 @@ impl Features {
 /// the C's `STATUS_EVERY_BINS`.
 pub const STATUS_EVERY_BINS: u32 = 100;
 
+/// Bins between the `tx` lines: 20 x 50 ms = 1 s, the C's `tx_count % 20`.
+pub const TX_EVERY_BINS: u32 = 20;
+
+/// Which lines are due after a bin was read, from [`BinCounter::read`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Due {
+    /// The `tx` line: every [`TX_EVERY_BINS`]th bin read.
+    pub tx: bool,
+    /// The status block (the stream lines, `feat:` and the frame check):
+    /// every [`STATUS_EVERY_BINS`]th bin read.
+    pub status: bool,
+}
+
 /// The bookkeeping of `main.c`'s loop around `acq_read_features()`: which
 /// bin was read last, how many have been read and how many skipped.
 ///
@@ -206,6 +219,11 @@ pub const STATUS_EVERY_BINS: u32 = 100;
 /// whose hold never took effect is skipped and counted rather than
 /// published torn, and the bin it missed is taken as seen, so the next
 /// attempt waits for the bin after it, as in the C.
+///
+/// The count of bins read is the C's `tx_count`, the first figure of the
+/// `tx` line. The C counts every frame it builds, whatever `udp_sendto()`
+/// then returns, so this counts the same; frames that never reached the
+/// stack are counted apart (see `telemetry::Unsent`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct BinCounter {
     last: u32,
@@ -229,12 +247,14 @@ impl BinCounter {
         index != self.last
     }
 
-    /// Bin `bin` was read. Returns whether a status report is due: every
-    /// [`STATUS_EVERY_BINS`]th bin read.
-    pub fn read(&mut self, bin: u32) -> bool {
+    /// Bin `bin` was read. Returns which lines are now due.
+    pub fn read(&mut self, bin: u32) -> Due {
         self.last = bin;
         self.read = self.read.wrapping_add(1);
-        self.read.is_multiple_of(STATUS_EVERY_BINS)
+        Due {
+            tx: self.read.is_multiple_of(TX_EVERY_BINS),
+            status: self.read.is_multiple_of(STATUS_EVERY_BINS),
+        }
     }
 
     /// The hold never took effect; FEATURE_INDEX now reads `index`.

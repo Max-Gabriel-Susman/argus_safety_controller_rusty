@@ -13,6 +13,8 @@
 //! - [`lines`]: the exact text of every console line the C firmware prints.
 //! - [`phy`]: the board's RTL8211E Ethernet PHY over an MDIO trait: find
 //!   it, reset it, autonegotiate and read back the link.
+//! - [`telemetry`]: the v3 frame each feature bin becomes, and the count
+//!   of frames that never reached the network.
 //! - [`timing`]: the per-report sums, maxima and averages in the stream
 //!   lines.
 //!
@@ -24,4 +26,5 @@ pub mod acq;
 pub mod console;
 pub mod lines;
 pub mod phy;
+pub mod telemetry;
 pub mod timing;

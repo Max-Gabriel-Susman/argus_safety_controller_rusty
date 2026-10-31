@@ -294,6 +294,21 @@ fn tx() {
 }
 
 #[test]
+fn telemetry_unsent() {
+    // New: no C equivalent. The harness reads every line that begins with
+    // "tx " as the tx line, so this one must not.
+    let line = TelemetryUnsent {
+        link_down: 61,
+        refused: 2,
+    };
+    assert_eq!(
+        line.to_string(),
+        "telemetry: unsent link down 61 refused 2\r\n"
+    );
+    assert!(!line.to_string().starts_with("tx "));
+}
+
+#[test]
 fn stream_halves() {
     // argus_console_printf("stream: halves=%u underruns=%u failures=%u next=%u"
     //     " pl: half=%u row=%u c0=%u c1=%u\r\n", halves, underruns, failures, next,
