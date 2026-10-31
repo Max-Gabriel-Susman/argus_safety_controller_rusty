@@ -7,8 +7,8 @@
 use std::collections::{HashMap, HashSet};
 
 use argus_fw_core::phy::{
-    self, ADVERTISE, ADVERTISE_1000, Duplex, Link, LinkChange, LinkWatch, Mdio, PhyId, Rtl8211e,
-    Speed, bmcr, bmsr, physr, reg,
+    self, ADVERTISE, ADVERTISE_1000, Chip, Duplex, Link, LinkChange, LinkWatch, Mdio, PhyId,
+    Rtl8211, Speed, bmcr, bmsr, physr, physr_f, reg,
 };
 
 const RTL8211E: PhyId = PhyId {
@@ -85,8 +85,8 @@ impl Mdio for FakeMdio {
 
 type Result = core::result::Result<(), &'static str>;
 
-fn found(bus: &mut FakeMdio) -> core::result::Result<Rtl8211e, &'static str> {
-    Rtl8211e::probe(bus).ok_or("no RTL8211E on the bus")
+fn found(bus: &mut FakeMdio) -> core::result::Result<Rtl8211, &'static str> {
+    Rtl8211::probe(bus).ok_or("no RTL8211 on the bus")
 }
 
 #[test]
@@ -164,7 +164,7 @@ fn probe_falls_back_to_address_0() -> Result {
 #[test]
 fn probe_rejects_an_empty_bus_and_other_phys() {
     let mut bus = FakeMdio::default();
-    assert_eq!(Rtl8211e::probe(&mut bus), None);
+    assert_eq!(Rtl8211::probe(&mut bus), None);
     // All 32 addresses were tried; each read 0xFFFF.
     assert_eq!(bus.reads.len(), 64);
 
@@ -173,14 +173,14 @@ fn probe_rejects_an_empty_bus_and_other_phys() {
         id2: 0x0DD1,
     };
     let mut bus = FakeMdio::with_phy(1, marvell);
-    assert_eq!(Rtl8211e::probe(&mut bus), None);
+    assert_eq!(Rtl8211::probe(&mut bus), None);
 
     // A bus held low reads 0x0000 everywhere: no PHY either.
     let mut bus = FakeMdio {
         present: (0..32).collect(),
         ..FakeMdio::default()
     };
-    assert_eq!(Rtl8211e::probe(&mut bus), None);
+    assert_eq!(Rtl8211::probe(&mut bus), None);
 }
 
 #[test]
@@ -457,4 +457,96 @@ fn scan_finds_nothing_on_an_empty_bus_or_one_held_low() {
     let mut held_low = FakeMdio::with_phy(1, PhyId { id1: 0, id2: 0 });
     held_low.place(0, PhyId { id1: 0, id2: 0 });
     assert_eq!(phy::scan(&mut held_low), None);
+}
+
+/// The RTL8211F this board carries, as it identified itself on the bus.
+const RTL8211F: PhyId = PhyId {
+    id1: 0x001C,
+    id2: 0xC916,
+};
+
+#[test]
+fn chip_by_whole_identifier() {
+    assert_eq!(RTL8211E.chip(), Some(Chip::Rtl8211e));
+    assert_eq!(RTL8211F.chip(), Some(Chip::Rtl8211f));
+    assert_eq!(RTL8211F.revision(), phy::RTL8211F_REVISION);
+    assert!(!RTL8211F.is_rtl8211e());
+    // The B shares the model number and is neither.
+    let b = PhyId {
+        id1: 0x001C,
+        id2: 0xC912,
+    };
+    assert_eq!(b.chip(), None);
+}
+
+#[test]
+fn probe_finds_an_rtl8211f() -> Result {
+    let mut bus = FakeMdio::with_phy(1, RTL8211F);
+    let phy = found(&mut bus)?;
+    assert_eq!(phy.addr(), 1);
+    assert_eq!(phy.id(), RTL8211F);
+    assert_eq!(phy.chip(), Chip::Rtl8211f);
+    Ok(())
+}
+
+#[test]
+fn physr_f_fields() {
+    assert_eq!(reg::PHYSR_F, 0x1A);
+    assert_eq!(reg::PAGE_SELECT, 0x1F);
+    assert_eq!(reg::PHYSR_F_PAGE, 0x0A43);
+    assert_eq!(physr_f::SPEED_MASK, 0x0030);
+    assert_eq!(physr_f::FULL_DUPLEX, 0x0008);
+    assert_eq!(physr_f::LINK, 0x0004);
+}
+
+/// An RTL8211F PHYSR with the link bit set, at `speed_bits`, full duplex
+/// if `full`.
+fn physr_f_up(speed_bits: u16, full: bool) -> u16 {
+    let duplex = if full { physr_f::FULL_DUPLEX } else { 0 };
+    (speed_bits << physr_f::SPEED_SHIFT) | duplex | physr_f::LINK
+}
+
+#[test]
+fn rtl8211f_link_reads_physr_on_its_page_and_goes_back_to_page_0() -> Result {
+    let cases = [
+        (0b10, true, Speed::Mbps1000, Duplex::Full),
+        (0b01, true, Speed::Mbps100, Duplex::Full),
+        (0b00, false, Speed::Mbps10, Duplex::Half),
+    ];
+    for (bits, full, speed, duplex) in cases {
+        let mut bus = FakeMdio::with_phy(1, RTL8211F);
+        let phy = found(&mut bus)?;
+        bus.set(1, reg::PHYSR_F, physr_f_up(bits, full));
+        bus.take_reads();
+        assert_eq!(phy.link(&mut bus), Link::Up { speed, duplex });
+        assert_eq!(
+            bus.writes,
+            [
+                (1, reg::PAGE_SELECT, reg::PHYSR_F_PAGE),
+                (1, reg::PAGE_SELECT, 0),
+            ]
+        );
+        // The E's PHYSR is not read, nor BMSR for a usable speed.
+        assert_eq!(bus.take_reads(), [(1, reg::PHYSR_F)]);
+    }
+    Ok(())
+}
+
+#[test]
+fn rtl8211f_link_down_and_assumed() -> Result {
+    let mut bus = FakeMdio::with_phy(1, RTL8211F);
+    let phy = found(&mut bus)?;
+    // Speed bits left over without the link bit: down.
+    bus.set(1, reg::PHYSR_F, physr_f_up(0b10, true) & !physr_f::LINK);
+    bus.set(1, reg::BMSR, bmsr::AN_COMPLETE);
+    assert_eq!(phy.link(&mut bus), Link::Down);
+    // The reserved speed with negotiation complete: assumed, with PHYSR
+    // passed on for the line.
+    let reserved = physr_f_up(0b11, true);
+    bus.set(1, reg::PHYSR_F, reserved);
+    assert_eq!(phy.link(&mut bus), Link::Assumed { physr: reserved });
+    // And while still negotiating: down.
+    bus.set(1, reg::BMSR, 0);
+    assert_eq!(phy.link(&mut bus), Link::Down);
+    Ok(())
 }

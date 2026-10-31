@@ -1,16 +1,24 @@
-//! The Realtek RTL8211E Ethernet PHY on the Arty Z7-20, over an [`Mdio`]
-//! bus.
+//! The Realtek RTL8211 Ethernet PHY on the Arty Z7-20, over an [`Mdio`]
+//! bus: the RTL8211E the board's reference manual names, and the RTL8211F
+//! this board actually carries (it identifies as 001c:c916).
+//!
+//! The two differ where it matters here, in the PHY specific status
+//! register that says what autonegotiation settled on: the E has it at
+//! register 0x11 ([`reg::PHYSR`]), the F at register 0x1a of page 0xa43
+//! ([`reg::PHYSR_F`]), with other bit positions. Everything else this
+//! driver touches is IEEE 802.3 clause 22 and the same on both.
 //!
 //! The C firmware leaves the PHY to the Xilinx lwIP port
 //! (`xemacpsif_physpeed.c`), and on this board that code fails: its
 //! `get_Realtek_phy_speed()` sees autonegotiation complete and then reads a
-//! speed it does not recognise, so `lwipopts.h` gives up on autodetection
-//! and forces 1000 Mb/s with `CONFIG_LINKSPEED1000`. This driver
-//! autonegotiates, reads the outcome from the PHY specific status register
-//! ([`reg::PHYSR`]) and keeps the C's answer only for the case the C hit:
-//! negotiation done but the speed not readable, where it assumes 1000 Mb/s
-//! full duplex (the board's link is RGMII gigabit; per `lwipopts.h`, 100
-//! does not link and 1000 does) and says so ([`Link::Assumed`]).
+//! speed it does not recognise (most likely because it decodes register
+//! 0x11 as an E's on an F), so `lwipopts.h` gives up on autodetection and
+//! forces 1000 Mb/s with `CONFIG_LINKSPEED1000`. This driver
+//! autonegotiates, reads the outcome from the chip's own status register
+//! and keeps the C's answer only for the case the C hit: negotiation done
+//! but the speed not readable, where it assumes 1000 Mb/s full duplex (the
+//! board's link is RGMII gigabit; per `lwipopts.h`, 100 does not link and
+//! 1000 does) and says so ([`Link::Assumed`]).
 //!
 //! The driver holds no bus. Each call borrows one, because in the firmware
 //! the MDIO interface lives inside the GEM driver, which the link task also
@@ -19,7 +27,8 @@
 //! between polls instead of spinning on the executor.
 //!
 //! Modelled on the Marvell 88E1518 driver of the zynq7000-rs Zedboard BSP;
-//! the registers are the RTL8211E datasheet's, and 0 to 4 and 9 are the
+//! the vendor registers are the RTL8211E and RTL8211F datasheets' (the F's
+//! as u-boot's Realtek driver also uses them), and 0 to 4 and 9 are the
 //! IEEE 802.3 clause 22 ones every PHY has.
 
 /// A clause 22 MDIO bus: 32 PHY addresses of 32 16-bit registers each.
@@ -49,8 +58,16 @@ pub mod reg {
     pub const ANAR: u8 = 0x04;
     /// 1000BASE-T control (IEEE): see [`gbcr`](super::gbcr).
     pub const GBCR: u8 = 0x09;
-    /// PHY specific status (Realtek): see [`physr`](super::physr).
+    /// PHY specific status (RTL8211E): see [`physr`](super::physr).
     pub const PHYSR: u8 = 0x11;
+    /// PHY specific status (RTL8211F, page [`PHYSR_F_PAGE`]): see
+    /// [`physr_f`](super::physr_f).
+    pub const PHYSR_F: u8 = 0x1A;
+    /// Page select (RTL8211F): which page registers 0x10 to 0x1E show. 0
+    /// is the default page; 0 to 15 are the IEEE registers on any page.
+    pub const PAGE_SELECT: u8 = 0x1F;
+    /// The RTL8211F page that holds [`PHYSR_F`].
+    pub const PHYSR_F_PAGE: u16 = 0x0A43;
 }
 
 /// BMCR bits.
@@ -101,6 +118,20 @@ pub mod physr {
     pub const LINK: u16 = 1 << 10;
 }
 
+/// RTL8211F PHYSR fields. The speed and duplex fields mean nothing while
+/// [`LINK`](physr_f::LINK) is clear.
+pub mod physr_f {
+    /// The resolved speed, bits 5:4, coded as the E's: see
+    /// [`Speed`](super::Speed).
+    pub const SPEED_SHIFT: u32 = 4;
+    /// The speed field, in place.
+    pub const SPEED_MASK: u16 = 0b11 << SPEED_SHIFT;
+    /// The resolved duplex: 1 full, 0 half.
+    pub const FULL_DUPLEX: u16 = 1 << 3;
+    /// The link as it is now, not latched like BMSR's link bit.
+    pub const LINK: u16 = 1 << 2;
+}
+
 /// What this driver advertises in [`reg::ANAR`]: 100 and 10 Mb/s, full
 /// duplex only, and no pause, since the GEM is not set up to honour pause
 /// frames.
@@ -120,6 +151,18 @@ pub const RTL8211_MODEL: u8 = 0x11;
 /// The revision that makes an RTL8211 an RTL8211E (the B is 2, the C 3,
 /// the DN 4, the F 6), as [`PhyId::revision`] reads it.
 pub const RTL8211E_REVISION: u8 = 5;
+
+/// The revision that makes an RTL8211 an RTL8211F.
+pub const RTL8211F_REVISION: u8 = 6;
+
+/// The RTL8211 chips this driver knows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Chip {
+    /// RTL8211E: PHYSR at register 0x11.
+    Rtl8211e,
+    /// RTL8211F: PHYSR at page 0xa43, register 0x1a.
+    Rtl8211f,
+}
 
 /// The two identifier registers of a PHY, as read.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -153,9 +196,20 @@ impl PhyId {
     /// The whole identifier is checked because the F, whose PHYSR is laid
     /// out differently, has the same model number.
     pub const fn is_rtl8211e(self) -> bool {
-        self.oui() == REALTEK_OUI
-            && self.model() == RTL8211_MODEL
-            && self.revision() == RTL8211E_REVISION
+        matches!(self.chip(), Some(Chip::Rtl8211e))
+    }
+
+    /// Which RTL8211 this is, by the whole identifier; `None` for any
+    /// other PHY, including the other RTL8211 revisions.
+    pub const fn chip(self) -> Option<Chip> {
+        if self.oui() != REALTEK_OUI || self.model() != RTL8211_MODEL {
+            return None;
+        }
+        match self.revision() {
+            RTL8211E_REVISION => Some(Chip::Rtl8211e),
+            RTL8211F_REVISION => Some(Chip::Rtl8211f),
+            _ => None,
+        }
     }
 }
 
@@ -171,10 +225,15 @@ pub enum Speed {
 }
 
 impl Speed {
-    /// The PHYSR speed field: 0b00 10, 0b01 100, 0b10 1000. The fourth
-    /// value is reserved and gives `None`.
+    /// The RTL8211E's PHYSR speed field: see [`from_field`](Self::from_field).
     pub const fn from_physr(physr: u16) -> Option<Self> {
-        match (physr & physr::SPEED_MASK) >> physr::SPEED_SHIFT {
+        Self::from_field((physr & physr::SPEED_MASK) >> physr::SPEED_SHIFT)
+    }
+
+    /// The two-bit speed field both chips use, shifted down: 0b00 10,
+    /// 0b01 100, 0b10 1000. The fourth value is reserved and gives `None`.
+    pub const fn from_field(field: u16) -> Option<Self> {
+        match field {
             0b00 => Some(Self::Mbps10),
             0b01 => Some(Self::Mbps100),
             0b10 => Some(Self::Mbps1000),
@@ -258,9 +317,9 @@ impl Link {
         }
     }
 
-    /// Decode a PHYSR reading. `an_complete` is BMSR's autonegotiation
-    /// complete bit; it is asked for only when PHYSR shows a link without
-    /// a usable speed, the one case it decides.
+    /// Decode an RTL8211E PHYSR reading. `an_complete` is BMSR's
+    /// autonegotiation complete bit; it is asked for only when PHYSR shows
+    /// a link without a usable speed, the one case it decides.
     pub fn from_physr(physr: u16, an_complete: impl FnOnce() -> bool) -> Self {
         if physr & physr::LINK == 0 {
             return Self::Down;
@@ -270,11 +329,35 @@ impl Link {
         } else {
             None
         };
+        Self::resolve(physr, speed, Duplex::from_physr(physr), an_complete)
+    }
+
+    /// Decode an RTL8211F PHYSR reading, as [`from_physr`](Self::from_physr)
+    /// does the E's. The F has no resolved bit: with the link up the speed
+    /// field holds the outcome, and only its reserved value is unusable.
+    pub fn from_physr_f(physr: u16, an_complete: impl FnOnce() -> bool) -> Self {
+        if physr & physr_f::LINK == 0 {
+            return Self::Down;
+        }
+        let speed = Speed::from_field((physr & physr_f::SPEED_MASK) >> physr_f::SPEED_SHIFT);
+        let duplex = if physr & physr_f::FULL_DUPLEX != 0 {
+            Duplex::Full
+        } else {
+            Duplex::Half
+        };
+        Self::resolve(physr, speed, duplex, an_complete)
+    }
+
+    /// A link up at `speed` if the status register gave one; else assumed,
+    /// once negotiation is complete.
+    fn resolve(
+        physr: u16,
+        speed: Option<Speed>,
+        duplex: Duplex,
+        an_complete: impl FnOnce() -> bool,
+    ) -> Self {
         match speed {
-            Some(speed) => Self::Up {
-                speed,
-                duplex: Duplex::from_physr(physr),
-            },
+            Some(speed) => Self::Up { speed, duplex },
             // A link is reported while negotiation is still settling; wait
             // for the PHY to finish before assuming anything.
             None if an_complete() => Self::Assumed { physr },
@@ -338,7 +421,7 @@ impl LinkWatch {
 }
 
 /// The first PHY that answers on the bus, whatever it is, in
-/// [`Rtl8211e::probe`]'s order: its address and identifier. An address
+/// [`Rtl8211::probe`]'s order: its address and identifier. An address
 /// reading 0xFFFF:0xFFFF (nothing driving the line) or 0x0000:0x0000 (the
 /// line held low) is taken as no PHY. For saying what is there when the
 /// probe finds no RTL8211E.
@@ -353,26 +436,32 @@ pub fn scan(mdio: &mut impl Mdio) -> Option<(u8, PhyId)> {
     })
 }
 
-/// An RTL8211E found on the bus.
+/// An RTL8211E or RTL8211F found on the bus.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Rtl8211e {
+pub struct Rtl8211 {
     addr: u8,
     id: PhyId,
+    chip: Chip,
 }
 
-impl Rtl8211e {
+impl Rtl8211 {
     /// Find the PHY. Addresses 1 to 31 are tried first and 0 last, because
-    /// the RTL8211E also answers at 0, the broadcast address, whatever its
+    /// an RTL8211 also answers at 0, the broadcast address, whatever its
     /// strapped address is (on the Arty, 1). `None` when no address reads
-    /// an RTL8211E's identifier.
+    /// an RTL8211E's or RTL8211F's identifier.
     pub fn probe(mdio: &mut impl Mdio) -> Option<Self> {
         (1..32).chain(0..1).find_map(|addr| {
             let id = PhyId {
                 id1: mdio.read(addr, reg::PHYID1),
                 id2: mdio.read(addr, reg::PHYID2),
             };
-            id.is_rtl8211e().then_some(Self { addr, id })
+            id.chip().map(|chip| Self { addr, id, chip })
         })
+    }
+
+    /// Which of the two it is.
+    pub const fn chip(&self) -> Chip {
+        self.chip
     }
 
     /// The MDIO address it answered at.
@@ -407,11 +496,28 @@ impl Rtl8211e {
     }
 
     /// The link now: one PHYSR read, and a BMSR read when PHYSR shows a
-    /// link without a usable speed (see [`Link::from_physr`]).
+    /// link without a usable speed (see [`Link::from_physr`]). On the F the
+    /// read is bracketed by selecting [`reg::PHYSR_F_PAGE`] and going back
+    /// to page 0, so that between polls the PHY is on its default page.
     pub fn link(&self, mdio: &mut impl Mdio) -> Link {
-        let physr = mdio.read(self.addr, reg::PHYSR);
-        Link::from_physr(physr, || {
-            mdio.read(self.addr, reg::BMSR) & bmsr::AN_COMPLETE != 0
-        })
+        let addr = self.addr;
+        let an_complete = |mdio: &mut _| read_an_complete(mdio, addr);
+        match self.chip {
+            Chip::Rtl8211e => {
+                let physr = mdio.read(addr, reg::PHYSR);
+                Link::from_physr(physr, || an_complete(mdio))
+            }
+            Chip::Rtl8211f => {
+                mdio.write(addr, reg::PAGE_SELECT, reg::PHYSR_F_PAGE);
+                let physr = mdio.read(addr, reg::PHYSR_F);
+                mdio.write(addr, reg::PAGE_SELECT, 0);
+                Link::from_physr_f(physr, || an_complete(mdio))
+            }
+        }
     }
+}
+
+/// BMSR's autonegotiation complete bit, of the PHY at `addr`.
+fn read_an_complete(mdio: &mut impl Mdio, addr: u8) -> bool {
+    mdio.read(addr, reg::BMSR) & bmsr::AN_COMPLETE != 0
 }

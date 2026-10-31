@@ -1,4 +1,4 @@
-//! GEM0, the RTL8211E and the IP stack: MAC 00:0a:35:00:01:02, static
+//! GEM0, the RTL8211 PHY and the IP stack: MAC 00:0a:35:00:01:02, static
 //! 192.168.1.10/24 with gateway 192.168.1.1, as the C's `main.c` sets up
 //! lwIP.
 //!
@@ -26,7 +26,7 @@ use arbitrary_int::u5;
 use argus_fw_core::lines::{
     ETH_LINK_DOWN, ETH_NO_PHY, EthLinkUp, EthPhy, EthPhyUnknown, EthSpeedAssumed,
 };
-use argus_fw_core::phy::{self, LinkChange, LinkWatch, Rtl8211e};
+use argus_fw_core::phy::{self, LinkChange, LinkWatch, Rtl8211};
 use embassy_executor::Spawner;
 use embassy_net::driver::LinkState;
 use embassy_net::{Ipv4Address, Ipv4Cidr, Runner, Stack, StackResources, StaticConfigV4};
@@ -77,8 +77,8 @@ const SOCKETS: usize = 2;
 /// memory so that every descriptor access reaches DDR.
 const UNCACHED_SECTION: u32 = 0x0400_0000;
 
-/// How long MIO 9 holds the PHY in reset: the RTL8211E needs at least
-/// 10 ms.
+/// How long MIO 9 holds the PHY in reset: the RTL8211E and F need at
+/// least 10 ms.
 const PHY_RESET_LOW: Duration = Duration::from_millis(10);
 
 /// How long after reset before the PHY answers on MDIO: at least 150 ms.
@@ -122,7 +122,7 @@ impl phy::Mdio for GemMdio<'_> {
 
 /// Brings up the PHY, GEM0 and the stack, and spawns the runner and the
 /// link task. Returns the stack the UDP sockets will be opened on, or
-/// `None` when there is no network to run: no RTL8211E answered (an
+/// `None` when there is no network to run: no RTL8211E or RTL8211F answered (an
 /// `eth:` line says what did, if anything), or one of the tasks could not
 /// be spawned.
 ///
@@ -137,7 +137,7 @@ pub async fn start(
     // Only fails for an address that is not on a 1 MB boundary.
     update_l1_table(UNCACHED_SECTION, SHAREABLE_DEVICE).ok()?;
 
-    // The RTL8211E's reset is active low. Driving it here, before the GEM
+    // The PHY's reset is active low. Driving it here, before the GEM
     // exists, also means the PHY comes up with its power-on defaults
     // whatever an earlier image left in it.
     let mut phy_reset = Output::new_for_mio(phy_reset, PinState::Low);
@@ -156,7 +156,7 @@ pub async fn start(
     // After the hardware reset the PHY is in its power-on state, so no
     // soft reset: only the advertisement is set and negotiation restarted.
     let mut mdio = GemMdio(eth.mdio_mut());
-    let Some(phy) = Rtl8211e::probe(&mut mdio) else {
+    let Some(phy) = Rtl8211::probe(&mut mdio) else {
         match phy::scan(&mut mdio) {
             Some((addr, id)) => console!("{}", EthPhyUnknown { addr, id }),
             None => console!("{ETH_NO_PHY}"),
@@ -255,11 +255,12 @@ async fn stack_runner(mut runner: Runner<'static, Driver>) -> ! {
 /// its MDIO interface and its clock settings; the driver holds only the
 /// descriptor lists.
 ///
-/// One poll is one PHYSR read (and a BMSR read when the speed is
-/// unresolved), about 30 us of MDIO each, well inside the executor's
-/// 100 us budget.
+/// One poll is one PHYSR read, bracketed on the RTL8211F by two page
+/// selects (and a BMSR read when the speed is unresolved). At about 28 us
+/// per MDIO frame that is about 85 us on the F, inside the executor's
+/// 100 us budget; the rare unresolved case adds one frame more.
 #[embassy_executor::task]
-async fn link(mut eth: Ethernet, phy: Rtl8211e, clk_divs: ClockDivSet) -> ! {
+async fn link(mut eth: Ethernet, phy: Rtl8211, clk_divs: ClockDivSet) -> ! {
     let mut watch = LinkWatch::new();
     let mut ticker = Ticker::every(LINK_POLL);
     loop {

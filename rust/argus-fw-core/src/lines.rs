@@ -532,12 +532,12 @@ impl Display for EthSpeedAssumed {
 /// The link went down. New.
 pub const ETH_LINK_DOWN: &str = "eth: link down\r\n";
 
-/// No address on the MDIO bus answered with an RTL8211E's identifier, so
+/// No address on the MDIO bus answered with an RTL8211E's or RTL8211F's identifier, so
 /// the network stays down. New: the C's lwIP port stops at its own PHY
 /// detection failure.
 pub const ETH_NO_PHY: &str = "eth: no phy found\r\n";
 
-/// `eth: phy %04x:%04x at %u is not an RTL8211E`: a PHY answered, but not
+/// `eth: phy %04x:%04x at %u is not an RTL8211E or RTL8211F`: a PHY answered, but not
 /// with the identifier the driver knows, so the network stays down. Says
 /// what is there, which [`ETH_NO_PHY`] alone cannot. New.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -552,7 +552,7 @@ impl Display for EthPhyUnknown {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "eth: phy {:04x}:{:04x} at {} is not an RTL8211E\r\n",
+            "eth: phy {:04x}:{:04x} at {} is not an RTL8211E or RTL8211F\r\n",
             self.id.id1, self.id.id2, self.addr
         )
     }

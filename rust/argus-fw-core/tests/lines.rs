@@ -655,12 +655,12 @@ fn eth_link() {
         addr: 1,
         id: PhyId {
             id1: 0x001C,
-            id2: 0xC916,
+            id2: 0xC912,
         },
     };
     assert_eq!(
         f.to_string(),
-        "eth: phy 001c:c916 at 1 is not an RTL8211E\r\n"
+        "eth: phy 001c:c912 at 1 is not an RTL8211E or RTL8211F\r\n"
     );
 }
 
