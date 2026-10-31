@@ -15,7 +15,8 @@
 //!
 //! A few lines have no C equivalent: [`Banner`], [`Clk`], [`Heartbeat`],
 //! [`PrintTest`], [`PrintTime`], [`Panic`], [`Fault`] and the `eth:` lines
-//! ([`EthPhy`], [`EthLinkUp`], [`EthSpeedAssumed`], [`ETH_LINK_DOWN`]).
+//! ([`EthPhy`], [`EthLinkUp`], [`EthSpeedAssumed`], [`ETH_LINK_DOWN`],
+//! [`ETH_NO_PHY`]).
 //! They follow the same rules.
 
 use core::fmt::{self, Display, Formatter};
@@ -530,6 +531,11 @@ impl Display for EthSpeedAssumed {
 
 /// The link went down. New.
 pub const ETH_LINK_DOWN: &str = "eth: link down\r\n";
+
+/// No address on the MDIO bus answered with an RTL8211E's identifier, so
+/// the network stays down. New: the C's lwIP port stops at its own PHY
+/// detection failure.
+pub const ETH_NO_PHY: &str = "eth: no phy found\r\n";
 
 /// `replay ok: [0][0]=%04x [0][5]=%04x [1][0]=%04x [146][95]=%04x`: four
 /// samples of the one-shot fetch, `[sample][channel]`, enough to tell a

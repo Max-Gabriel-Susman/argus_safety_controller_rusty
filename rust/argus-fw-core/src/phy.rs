@@ -283,6 +283,60 @@ impl Link {
     }
 }
 
+/// A change of the link that the MAC and the IP stack must follow, as
+/// [`LinkWatch::update`] reports it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LinkChange {
+    /// The link came up, or came back at another speed or duplex: set the
+    /// MAC to these and print the `eth: link up` line.
+    Up {
+        /// The speed to run the MAC at.
+        speed: Speed,
+        /// The duplex to run the MAC at.
+        duplex: Duplex,
+        /// PHYSR as read when the mode is [`Link::ASSUMED`] rather than
+        /// resolved, for the `eth: speed unresolved` line printed first.
+        assumed_physr: Option<u16>,
+    },
+    /// The link went down.
+    Down,
+}
+
+/// The link mode last acted on, so that a link task polling the PHY acts
+/// only on changes. It compares [`Link::mode`], so an assumed link whose
+/// PHYSR reading moves is not a change.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LinkWatch {
+    mode: Option<(Speed, Duplex)>,
+}
+
+impl LinkWatch {
+    /// Starts with the link down, as the MAC and the stack do.
+    pub const fn new() -> Self {
+        Self { mode: None }
+    }
+
+    /// Take one poll of the link; `Some` when it differs from the last.
+    pub fn update(&mut self, link: Link) -> Option<LinkChange> {
+        let mode = link.mode();
+        if mode == self.mode {
+            return None;
+        }
+        self.mode = mode;
+        Some(match mode {
+            None => LinkChange::Down,
+            Some((speed, duplex)) => LinkChange::Up {
+                speed,
+                duplex,
+                assumed_physr: match link {
+                    Link::Assumed { physr } => Some(physr),
+                    Link::Down | Link::Up { .. } => None,
+                },
+            },
+        })
+    }
+}
+
 /// An RTL8211E found on the bus.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Rtl8211e {

@@ -7,8 +7,8 @@
 use std::collections::{HashMap, HashSet};
 
 use argus_fw_core::phy::{
-    self, ADVERTISE, ADVERTISE_1000, Duplex, Link, Mdio, PhyId, Rtl8211e, Speed, bmcr, bmsr, physr,
-    reg,
+    self, ADVERTISE, ADVERTISE_1000, Duplex, Link, LinkChange, LinkWatch, Mdio, PhyId, Rtl8211e,
+    Speed, bmcr, bmsr, physr, reg,
 };
 
 const RTL8211E: PhyId = PhyId {
@@ -372,4 +372,68 @@ fn full_bring_up_sequence() -> Result {
         ]
     );
     Ok(())
+}
+
+const UP_1000_FULL: Link = Link::Up {
+    speed: Speed::Mbps1000,
+    duplex: Duplex::Full,
+};
+
+#[test]
+fn link_watch_starts_down_and_is_quiet_while_down() {
+    let mut watch = LinkWatch::new();
+    assert_eq!(watch.update(Link::Down), None);
+    assert_eq!(watch.update(Link::Down), None);
+}
+
+#[test]
+fn link_watch_reports_up_once_then_down_once() {
+    let mut watch = LinkWatch::new();
+    assert_eq!(
+        watch.update(UP_1000_FULL),
+        Some(LinkChange::Up {
+            speed: Speed::Mbps1000,
+            duplex: Duplex::Full,
+            assumed_physr: None,
+        })
+    );
+    assert_eq!(watch.update(UP_1000_FULL), None);
+    assert_eq!(watch.update(Link::Down), Some(LinkChange::Down));
+    assert_eq!(watch.update(Link::Down), None);
+}
+
+#[test]
+fn link_watch_reports_a_new_speed_without_going_down() {
+    let mut watch = LinkWatch::new();
+    watch.update(UP_1000_FULL);
+    let up_100_half = Link::Up {
+        speed: Speed::Mbps100,
+        duplex: Duplex::Half,
+    };
+    assert_eq!(
+        watch.update(up_100_half),
+        Some(LinkChange::Up {
+            speed: Speed::Mbps100,
+            duplex: Duplex::Half,
+            assumed_physr: None,
+        })
+    );
+}
+
+#[test]
+fn link_watch_passes_on_the_physr_of_an_assumed_link() {
+    let mut watch = LinkWatch::new();
+    let physr = physr::LINK | physr::SPEED_MASK;
+    assert_eq!(
+        watch.update(Link::Assumed { physr }),
+        Some(LinkChange::Up {
+            speed: Speed::Mbps1000,
+            duplex: Duplex::Full,
+            assumed_physr: Some(physr),
+        })
+    );
+    // Neither a different unresolved reading nor the PHY resolving the
+    // same mode is a change: the MAC is already where it should be.
+    assert_eq!(watch.update(Link::Assumed { physr: physr::LINK }), None);
+    assert_eq!(watch.update(UP_1000_FULL), None);
 }

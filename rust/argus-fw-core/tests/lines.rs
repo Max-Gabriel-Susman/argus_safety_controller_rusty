@@ -650,6 +650,7 @@ fn eth_link() {
         assert_eq!(EthLinkUp { speed, duplex }.to_string(), line);
     }
     assert_eq!(ETH_LINK_DOWN, "eth: link down\r\n");
+    assert_eq!(ETH_NO_PHY, "eth: no phy found\r\n");
 }
 
 #[test]
