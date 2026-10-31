@@ -5,7 +5,8 @@
 //! as the registers set them, a timed long print and the C's replay clock
 //! check; runs the C's acquisition smoke test; brings up GEM0 and the IP
 //! stack (it answers ping at 192.168.1.10); then starts the telemetry task,
-//! which sends every feature bin to the host. Every print goes through the console
+//! which sends every feature bin to the host, and the replay task, which
+//! fetches one half from the relay. Every print goes through the console
 //! ring and returns at once; a task of its own feeds the UART. A panic or a
 //! CPU exception prints one line saying what and where, then parks the
 //! core.
@@ -22,12 +23,13 @@ mod acq_check;
 mod bram;
 mod console;
 mod net;
+mod replay;
 mod telemetry;
 
 use aarch32_cpu::asm::nop;
 use argus_fw_core::lines::{
     Banner, Clk, Fault, FaultKind, INITIALIZING, PRINT_TEST_BYTES, Panic, PrintTest, PrintTime,
-    ReplayClock,
+    REPLAY_INIT_FAILED, ReplayClock,
 };
 use core::panic::PanicInfo;
 use embassy_executor::Spawner;
@@ -113,6 +115,17 @@ async fn main(spawner: Spawner) -> ! {
         park()
     };
     spawner.spawn(telemetry);
+
+    // The C stops at a replay init failure; here telemetry carries on.
+    if let Some(stack) = stack {
+        let task = replay::socket(stack)
+            .zip(argus_fw_core::replay::client())
+            .and_then(|(socket, client)| replay::replay(stack, socket, client).ok());
+        match task {
+            Some(task) => spawner.spawn(task),
+            None => console!("{REPLAY_INIT_FAILED}"),
+        }
+    }
 
     // Every job is a task now; this one has nothing left to do.
     loop {

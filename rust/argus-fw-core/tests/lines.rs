@@ -54,6 +54,13 @@ fn constant_lines() {
     );
     // xil_printf("replay FAILED\r\n");
     assert_eq!(REPLAY_FAILED, "replay FAILED\r\n");
+    // xil_printf("ERROR: argus_replay_init failed\r\n");
+    assert_eq!(REPLAY_INIT_FAILED, "ERROR: argus_replay_init failed\r\n");
+    // xil_printf("ERROR: replay fetch request never left the board\r\n");
+    assert_eq!(
+        REPLAY_NEVER_SENT,
+        "ERROR: replay fetch request never left the board\r\n"
+    );
     // xil_printf("stream: priming\r\n");
     assert_eq!(STREAM_PRIMING, "stream: priming\r\n");
     // xil_printf("Argus Safety Controller initialized. IP 192.168.1.10\r\n");

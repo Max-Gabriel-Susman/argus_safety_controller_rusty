@@ -28,6 +28,8 @@ use argus_wire::frame::{FramePacket, frame_bytes};
 use argus_wire::generated::ARGUS_UDP_PORT;
 use embassy_net::udp::{PacketMetadata, UdpSocket};
 use embassy_net::{IpAddress, IpEndpoint, Stack};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer, with_timeout};
 use static_cell::ConstStaticCell;
 
@@ -76,6 +78,12 @@ pub fn socket(stack: Stack<'static>) -> Option<UdpSocket<'static>> {
     Some(socket)
 }
 
+/// Signalled once, when the first frame has left the board for the host,
+/// so the host's MAC address is known. The replay relay is the same host:
+/// the replay task waits for this before its first request, so that the
+/// request's 200 ms deadline is not spent waiting on ARP.
+pub static HOST_REACHED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+
 /// Where the frames go: the host on [`ARGUS_UDP_PORT`].
 fn host() -> IpEndpoint {
     let [a, b, c, d] = HOST_ADDRESS;
@@ -89,24 +97,48 @@ fn host() -> IpEndpoint {
 pub struct Link {
     stack: Stack<'static>,
     socket: UdpSocket<'static>,
+    /// Set once [`HOST_REACHED`] has been signalled.
+    host_reached: bool,
 }
 
 impl Link {
     /// The stack and the socket opened on it.
     pub const fn new(stack: Stack<'static>, socket: UdpSocket<'static>) -> Self {
-        Self { stack, socket }
+        Self {
+            stack,
+            socket,
+            host_reached: false,
+        }
     }
 
     /// Sends one frame, or says why it was not sent.
-    async fn send(&self, frame: &FramePacket) -> Result<(), Unsent> {
+    async fn send(&mut self, frame: &FramePacket) -> Result<(), Unsent> {
         if !self.stack.is_link_up() {
             return Err(Unsent::LinkDown);
         }
         // A timeout drops the send future before smoltcp took the frame, so
         // a frame is either queued whole or not at all.
         match with_timeout(SEND_WAIT, self.socket.send_to(frame_bytes(frame), host())).await {
-            Ok(Ok(())) => Ok(()),
+            Ok(Ok(())) => {
+                self.note_host_reached().await;
+                Ok(())
+            }
             Ok(Err(_)) | Err(_) => Err(Unsent::Refused),
+        }
+    }
+
+    /// Until the host has been reached once, waits up to [`SEND_WAIT`] for
+    /// the socket to empty and signals [`HOST_REACHED`] when it does.
+    /// smoltcp keeps a datagram in the socket until it knows the host's
+    /// MAC address, so an empty socket after a send means ARP has resolved.
+    /// Afterwards this costs nothing.
+    async fn note_host_reached(&mut self) {
+        if self.host_reached {
+            return;
+        }
+        if with_timeout(SEND_WAIT, self.socket.flush()).await.is_ok() {
+            self.host_reached = true;
+            HOST_REACHED.signal(());
         }
     }
 }
@@ -114,7 +146,7 @@ impl Link {
 /// The main loop's telemetry half (see the module notes). `link` is `None`
 /// when there is no network; every frame then counts as unsent.
 #[embassy_executor::task]
-pub async fn telemetry(mut acq: Acq, link: Option<Link>) -> ! {
+pub async fn telemetry(mut acq: Acq, mut link: Option<Link>) -> ! {
     let mut bins = BinCounter::new();
     let mut unsent = UnsentCounter::new();
     loop {
@@ -132,7 +164,7 @@ pub async fn telemetry(mut acq: Acq, link: Option<Link>) -> ! {
         let due = bins.read(features.bin);
 
         let frame = telemetry::frame(&features);
-        let sent = match &link {
+        let sent = match &mut link {
             Some(link) => link.send(&frame).await,
             None => Err(Unsent::LinkDown),
         };

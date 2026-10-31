@@ -20,3 +20,6 @@ workspace = true
 [dependencies]
 # The channel count, which the frame check and the telemetry frame share.
 argus-wire = { path = "../argus-wire" }
+# The replay client, whose configuration and counters the replay lines
+# report.
+argus-replay = { path = "../argus-replay" }

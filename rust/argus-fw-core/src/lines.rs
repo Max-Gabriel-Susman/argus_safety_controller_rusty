@@ -212,6 +212,13 @@ pub const REPLAY_BRAM_CACHEABLE: &str =
 /// The one-shot fetch ended Failed.
 pub const REPLAY_FAILED: &str = "replay FAILED\r\n";
 
+/// The replay socket could not be opened or bound to its port.
+pub const REPLAY_INIT_FAILED: &str = "ERROR: argus_replay_init failed\r\n";
+
+/// The one-shot fetch's request could not be handed to the stack in 200
+/// tries, 10 ms apart.
+pub const REPLAY_NEVER_SENT: &str = "ERROR: replay fetch request never left the board\r\n";
+
 /// Streaming has begun: the first half is being fetched.
 pub const STREAM_PRIMING: &str = "stream: priming\r\n";
 
@@ -591,7 +598,7 @@ impl Display for ReplayOk {
 /// unsigned ones only past 2^31.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ReplayCounters {
-    /// Requests sent, retransmits included.
+    /// First requests sent, one per fetch; retransmits are counted apart.
     pub requests: u32,
     /// Retransmit requests sent.
     pub retransmits: u32,

@@ -89,6 +89,7 @@ dependencies = [
  "aarch32-cpu 0.4.0",
  "arbitrary-int 2.2.0",
  "argus-fw-core",
+ "argus-replay",
  "argus-wire",
  "derive-mmio",
  "embassy-executor",
@@ -105,6 +106,7 @@ dependencies = [
 name = "argus-fw-core"
 version = "0.1.0"
 dependencies = [
+ "argus-replay",
  "argus-wire",
 ]
 
