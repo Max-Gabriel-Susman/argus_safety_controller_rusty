@@ -3,13 +3,22 @@
 # Every crate under rust/ joins as a member and shares one Cargo.lock, one
 # target/ directory, and the profiles below.
 #
-# Hybrid stage: the replay protocol core moves to Rust and links into the
-# Vitis C app as a static library. lwIP, the BSP, the BRAM mapping and the
-# main loop stay in C for now.
+#
+# The firmware is moving to Rust whole: everything that runs on the
+# Cortex-A9 becomes Rust on Embassy, with smoltcp in place of lwIP. The C
+# application in safety_controller/ is the specification until the Rust
+# firmware matches it on the board. The library crates are no_std and
+# host-tested; only the firmware binary is built for the A9, with an
+# explicit --target (see .cargo/config.toml).
 [workspace]
 resolver = "3"
 
 members = ["argus-wire"]
+
+# What a bare `cargo build` or `cargo test` in rust/ acts on: every crate that
+# builds and tests on the host. The firmware binary, once it exists, stays
+# out of this list because it only builds for the A9.
+default-members = ["argus-wire"]
 
 [workspace.package]
 version = "0.1.0"
