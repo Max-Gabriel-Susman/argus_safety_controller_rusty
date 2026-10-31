@@ -12,6 +12,9 @@
 //! `console.print(format_args!("{line}"))`. The struct fields are the C's
 //! printf arguments, so the firmware fills them from the same registers and
 //! counters the C reads.
+//!
+//! A few lines have no C equivalent: [`Banner`], [`Clk`], [`Heartbeat`],
+//! [`Panic`] and [`Fault`]. They follow the same rules.
 
 use core::fmt::{self, Display, Formatter};
 
@@ -19,6 +22,131 @@ use argus_wire::frame::CHANNELS;
 
 use crate::acq::{self, FrameCheck, ReplayStatus};
 use crate::timing::Timing;
+
+/// `argus-fw <rev> boot`: the first line, naming the commit the image was
+/// built from, so a log says which firmware produced it. New: the C
+/// firmware has no build identity.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Banner<'a> {
+    /// The commit as 12 hex digits, with `-dirty` appended when the tree
+    /// had uncommitted changes.
+    pub rev: &'a str,
+}
+
+impl Display for Banner<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "argus-fw {} boot\r\n", self.rev)
+    }
+}
+
+/// `clk: apu=<hz> gtc=<hz> iopll=<hz> uart=<hz>`: the clocks the firmware
+/// runs on, as read from the PLL and divider registers. New: the C
+/// hardcodes a 333 MHz timer, which on the Arty's 50 MHz reference is
+/// really 325 MHz; this line shows what the registers say.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Clk {
+    /// The Cortex-A9 core clock (CPU_6x4x).
+    pub apu: u32,
+    /// The global timer's clock (CPU_3x2x), which embassy-time counts.
+    pub gtc: u32,
+    /// The IO PLL's output, the source of the peripheral clocks.
+    pub iopll: u32,
+    /// The UART reference clock the baud divisors are computed from.
+    pub uart: u32,
+}
+
+impl Display for Clk {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "clk: apu={} gtc={} iopll={} uart={}\r\n",
+            self.apu, self.gtc, self.iopll, self.uart
+        )
+    }
+}
+
+/// `hb <n> con drop=<d> max=<m>`, every 5 s until telemetry has its own
+/// lines: proof the executor and the time driver are alive, with the
+/// console's drops and longest message as in the `stream: rx` line. New.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Heartbeat {
+    /// Heartbeats since boot, from 1.
+    pub n: u32,
+    /// The console's drops since boot.
+    pub con_drops: u32,
+    /// The console's longest message since the last heartbeat.
+    pub con_max: u32,
+}
+
+impl Display for Heartbeat {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "hb {} con drop={} max={}\r\n",
+            self.n, self.con_drops, self.con_max
+        )
+    }
+}
+
+/// `panic: <message> at <file>:<line>`: the last line before a panic parks
+/// the core. New: the C has no panics. Without a location (Rust always
+/// supplies one for a panic in this code) the ` at` part is left off.
+#[derive(Clone, Copy, Debug)]
+pub struct Panic<'a, M> {
+    /// What the panic said.
+    pub message: M,
+    /// Where it was raised: the source file and line.
+    pub location: Option<(&'a str, u32)>,
+}
+
+impl<M: Display> Display for Panic<'_, M> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "panic: {}", self.message)?;
+        if let Some((file, line)) = self.location {
+            write!(f, " at {file}:{line}")?;
+        }
+        f.write_str("\r\n")
+    }
+}
+
+/// The CPU exceptions that end in a [`Fault`] line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FaultKind {
+    /// An undefined instruction.
+    Undefined,
+    /// An instruction fetch from an address that cannot be read.
+    PrefetchAbort,
+    /// A load or store the memory system refused, such as an AXI read of
+    /// unprogrammed PL.
+    DataAbort,
+}
+
+impl FaultKind {
+    /// The kind as the line names it.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Undefined => "undefined",
+            Self::PrefetchAbort => "prefetch abort",
+            Self::DataAbort => "data abort",
+        }
+    }
+}
+
+/// `fault: <kind> at %08x`: the last line before an exception parks the
+/// core. New: the C's BSP handlers loop silently.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Fault {
+    /// Which exception.
+    pub kind: FaultKind,
+    /// The address of the instruction that raised it.
+    pub addr: u32,
+}
+
+impl Display for Fault {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "fault: {} at {:08x}\r\n", self.kind.as_str(), self.addr)
+    }
+}
 
 /// The first line of the C firmware, after the D-cache is on.
 pub const INITIALIZING: &str = "Initializing Argus Safety Controller...\r\n";

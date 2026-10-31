@@ -422,8 +422,115 @@ fn the_longest_line_fits_the_console() {
         }
         .to_string(),
         AcqId { id: 0 }.to_string(),
+        Clk {
+            apu: m,
+            gtc: m,
+            iopll: m,
+            uart: m,
+        }
+        .to_string(),
+        Heartbeat {
+            n: m,
+            con_drops: m,
+            con_max: m,
+        }
+        .to_string(),
     ];
     for line in lines {
         assert!(line.len() < argus_fw_core::console::MSG_MAX, "{line}");
+    }
+}
+
+// The lines below have no C equivalent; the expected text is the console
+// contract's.
+
+#[test]
+fn banner() {
+    assert_eq!(
+        Banner {
+            rev: "93735e15236f"
+        }
+        .to_string(),
+        "argus-fw 93735e15236f boot\r\n"
+    );
+    assert_eq!(
+        Banner {
+            rev: "2db3cc261ae9-dirty"
+        }
+        .to_string(),
+        "argus-fw 2db3cc261ae9-dirty boot\r\n"
+    );
+}
+
+#[test]
+fn clk() {
+    // The Arty Z7-20 as ps7_init leaves it: 50 MHz x 26 = 1300 MHz ARM PLL
+    // over 2, 50 MHz x 20 = 1000 MHz IO PLL, UART reference IO PLL / 10.
+    assert_eq!(
+        Clk {
+            apu: 650_000_000,
+            gtc: 325_000_000,
+            iopll: 1_000_000_000,
+            uart: 100_000_000,
+        }
+        .to_string(),
+        "clk: apu=650000000 gtc=325000000 iopll=1000000000 uart=100000000\r\n"
+    );
+}
+
+#[test]
+fn heartbeat() {
+    assert_eq!(
+        Heartbeat {
+            n: 12,
+            con_drops: 0,
+            con_max: 66,
+        }
+        .to_string(),
+        "hb 12 con drop=0 max=66\r\n"
+    );
+}
+
+#[test]
+fn panic_line() {
+    assert_eq!(
+        Panic {
+            message: format_args!("index {} out of range", 96),
+            location: Some(("argus-fw/src/main.rs", 42)),
+        }
+        .to_string(),
+        "panic: index 96 out of range at argus-fw/src/main.rs:42\r\n"
+    );
+    assert_eq!(
+        Panic {
+            message: "explicit panic",
+            location: None,
+        }
+        .to_string(),
+        "panic: explicit panic\r\n"
+    );
+}
+
+#[test]
+fn fault() {
+    let cases = [
+        (
+            FaultKind::Undefined,
+            0x0010_02f0,
+            "fault: undefined at 001002f0\r\n",
+        ),
+        (
+            FaultKind::PrefetchAbort,
+            0xdead_beef,
+            "fault: prefetch abort at deadbeef\r\n",
+        ),
+        (
+            FaultKind::DataAbort,
+            0x8,
+            "fault: data abort at 00000008\r\n",
+        ),
+    ];
+    for (kind, addr, line) in cases {
+        assert_eq!(Fault { kind, addr }.to_string(), line);
     }
 }
