@@ -14,6 +14,8 @@
 #![no_std]
 #![no_main]
 
+mod acq;
+mod bram;
 mod console;
 
 use aarch32_cpu::asm::nop;

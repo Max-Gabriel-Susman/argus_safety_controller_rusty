@@ -25,6 +25,12 @@ workspace = true
 [dependencies]
 # The console lines, and the rest of what the firmware decides.
 argus-fw-core = { path = "../argus-fw-core" }
+# The channel count the register banks are sized by; later, the telemetry
+# frame.
+argus-wire = { path = "../argus-wire" }
+# The typed view of the acquisition registers: volatile 32-bit accessors
+# generated from a #[repr(C)] struct. The version the PAC already uses.
+derive-mmio = "0.8"
 # Runtime: the reset vector, the exception vectors, the MMU table and z7link.x.
 zynq7000-rt = { git = "https://github.com/ustgt-irs/zynq7000-rs", rev = "3a1f1bd7cb3ee8ed66bc55ee46849443da30ab79" }
 # The peripheral access crate: register blocks for every PS peripheral.
