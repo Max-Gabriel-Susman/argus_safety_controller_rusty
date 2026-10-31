@@ -16,7 +16,7 @@
 //! A few lines have no C equivalent: [`Banner`], [`Clk`], [`Heartbeat`],
 //! [`PrintTest`], [`PrintTime`], [`Panic`], [`Fault`] and the `eth:` lines
 //! ([`EthPhy`], [`EthLinkUp`], [`EthSpeedAssumed`], [`ETH_LINK_DOWN`],
-//! [`ETH_NO_PHY`]).
+//! [`ETH_NO_PHY`], [`EthPhyUnknown`]).
 //! They follow the same rules.
 
 use core::fmt::{self, Display, Formatter};
@@ -536,6 +536,27 @@ pub const ETH_LINK_DOWN: &str = "eth: link down\r\n";
 /// the network stays down. New: the C's lwIP port stops at its own PHY
 /// detection failure.
 pub const ETH_NO_PHY: &str = "eth: no phy found\r\n";
+
+/// `eth: phy %04x:%04x at %u is not an RTL8211E`: a PHY answered, but not
+/// with the identifier the driver knows, so the network stays down. Says
+/// what is there, which [`ETH_NO_PHY`] alone cannot. New.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EthPhyUnknown {
+    /// The MDIO address it answered at.
+    pub addr: u8,
+    /// Its identifier registers.
+    pub id: PhyId,
+}
+
+impl Display for EthPhyUnknown {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "eth: phy {:04x}:{:04x} at {} is not an RTL8211E\r\n",
+            self.id.id1, self.id.id2, self.addr
+        )
+    }
+}
 
 /// `replay ok: [0][0]=%04x [0][5]=%04x [1][0]=%04x [146][95]=%04x`: four
 /// samples of the one-shot fetch, `[sample][channel]`, enough to tell a

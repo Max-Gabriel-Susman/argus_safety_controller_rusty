@@ -23,7 +23,9 @@
 //! maintenance can be forgotten.
 
 use arbitrary_int::u5;
-use argus_fw_core::lines::{ETH_LINK_DOWN, ETH_NO_PHY, EthLinkUp, EthPhy, EthSpeedAssumed};
+use argus_fw_core::lines::{
+    ETH_LINK_DOWN, ETH_NO_PHY, EthLinkUp, EthPhy, EthPhyUnknown, EthSpeedAssumed,
+};
 use argus_fw_core::phy::{self, LinkChange, LinkWatch, Rtl8211e};
 use embassy_executor::Spawner;
 use embassy_net::driver::LinkState;
@@ -120,8 +122,9 @@ impl phy::Mdio for GemMdio<'_> {
 
 /// Brings up the PHY, GEM0 and the stack, and spawns the runner and the
 /// link task. Returns the stack the UDP sockets will be opened on, or
-/// `None` when there is no network to run: no PHY answered (the `eth: no
-/// phy found` line says so), or one of the tasks could not be spawned.
+/// `None` when there is no network to run: no RTL8211E answered (an
+/// `eth:` line says what did, if anything), or one of the tasks could not
+/// be spawned.
 ///
 /// Takes about 160 ms, nearly all of it the PHY reset, which is slept
 /// through so the other tasks run meanwhile.
@@ -154,7 +157,10 @@ pub async fn start(
     // soft reset: only the advertisement is set and negotiation restarted.
     let mut mdio = GemMdio(eth.mdio_mut());
     let Some(phy) = Rtl8211e::probe(&mut mdio) else {
-        console!("{ETH_NO_PHY}");
+        match phy::scan(&mut mdio) {
+            Some((addr, id)) => console!("{}", EthPhyUnknown { addr, id }),
+            None => console!("{ETH_NO_PHY}"),
+        }
         return None;
     };
     console!("{}", EthPhy { id: phy.id() });

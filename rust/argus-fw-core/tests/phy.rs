@@ -437,3 +437,24 @@ fn link_watch_passes_on_the_physr_of_an_assumed_link() {
     assert_eq!(watch.update(Link::Assumed { physr: physr::LINK }), None);
     assert_eq!(watch.update(UP_1000_FULL), None);
 }
+
+#[test]
+fn scan_reports_whatever_phy_answers_first() {
+    let other = PhyId {
+        id1: 0x001C,
+        id2: 0xC916,
+    };
+    let mut bus = FakeMdio::with_phy(3, other);
+    bus.place(7, RTL8211E);
+    assert_eq!(phy::scan(&mut bus), Some((3, other)));
+}
+
+#[test]
+fn scan_finds_nothing_on_an_empty_bus_or_one_held_low() {
+    // An empty bus reads 0xFFFF everywhere.
+    assert_eq!(phy::scan(&mut FakeMdio::default()), None);
+    // A PHY whose identifier reads all zeros is a line held low.
+    let mut held_low = FakeMdio::with_phy(1, PhyId { id1: 0, id2: 0 });
+    held_low.place(0, PhyId { id1: 0, id2: 0 });
+    assert_eq!(phy::scan(&mut held_low), None);
+}

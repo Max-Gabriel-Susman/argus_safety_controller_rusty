@@ -651,6 +651,17 @@ fn eth_link() {
     }
     assert_eq!(ETH_LINK_DOWN, "eth: link down\r\n");
     assert_eq!(ETH_NO_PHY, "eth: no phy found\r\n");
+    let f = EthPhyUnknown {
+        addr: 1,
+        id: PhyId {
+            id1: 0x001C,
+            id2: 0xC916,
+        },
+    };
+    assert_eq!(
+        f.to_string(),
+        "eth: phy 001c:c916 at 1 is not an RTL8211E\r\n"
+    );
 }
 
 #[test]

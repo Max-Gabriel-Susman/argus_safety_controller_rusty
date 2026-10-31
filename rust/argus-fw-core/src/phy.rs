@@ -337,6 +337,22 @@ impl LinkWatch {
     }
 }
 
+/// The first PHY that answers on the bus, whatever it is, in
+/// [`Rtl8211e::probe`]'s order: its address and identifier. An address
+/// reading 0xFFFF:0xFFFF (nothing driving the line) or 0x0000:0x0000 (the
+/// line held low) is taken as no PHY. For saying what is there when the
+/// probe finds no RTL8211E.
+pub fn scan(mdio: &mut impl Mdio) -> Option<(u8, PhyId)> {
+    (1..32).chain(0..1).find_map(|addr| {
+        let id = PhyId {
+            id1: mdio.read(addr, reg::PHYID1),
+            id2: mdio.read(addr, reg::PHYID2),
+        };
+        let absent = (id.id1 == 0xFFFF && id.id2 == 0xFFFF) || (id.id1 == 0 && id.id2 == 0);
+        (!absent).then_some((addr, id))
+    })
+}
+
 /// An RTL8211E found on the bus.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Rtl8211e {
