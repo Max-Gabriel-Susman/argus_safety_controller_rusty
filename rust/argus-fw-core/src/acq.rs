@@ -153,6 +153,107 @@ pub const fn feature_power(hi: u32, lo: u32) -> u32 {
     (feature_sum(hi, lo) / BIN_LEN as u64) as u32
 }
 
+/// One feature bin as `acq_read_features()` hands it back: the bin number
+/// and each channel's crossing count and power, decoded.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Features {
+    /// FEATURE_INDEX under the feature hold: the bin in the read bank.
+    pub bin: u32,
+    /// Each channel's threshold crossings in the bin.
+    pub counts: [u16; CHANNELS],
+    /// Each channel's power, [`feature_power`].
+    pub power: [u32; CHANNELS],
+}
+
+impl Features {
+    /// Bin `bin` with every channel zero, to be filled by [`Self::set`].
+    pub const fn new(bin: u32) -> Self {
+        Self {
+            bin,
+            counts: [0; CHANNELS],
+            power: [0; CHANNELS],
+        }
+    }
+
+    /// Decodes channel `n`'s FEATURE words, high and low, as the C does.
+    /// A channel past the last is ignored.
+    pub fn set(&mut self, n: usize, hi: u32, lo: u32) {
+        if let Some(count) = self.counts.get_mut(n) {
+            *count = feature_count(hi);
+        }
+        if let Some(power) = self.power.get_mut(n) {
+            *power = feature_power(hi, lo);
+        }
+    }
+
+    /// Channel `n`'s count and power, or zeros past the last channel.
+    pub fn channel(&self, n: usize) -> (u16, u32) {
+        (
+            self.counts.get(n).copied().unwrap_or(0),
+            self.power.get(n).copied().unwrap_or(0),
+        )
+    }
+}
+
+/// Bins between the status lines of the feature loop: 100 x 50 ms = 5 s,
+/// the C's `STATUS_EVERY_BINS`.
+pub const STATUS_EVERY_BINS: u32 = 100;
+
+/// The bookkeeping of `main.c`'s loop around `acq_read_features()`: which
+/// bin was read last, how many have been read and how many skipped.
+///
+/// The loop polls FEATURE_INDEX and reads only when it has moved. A read
+/// whose hold never took effect is skipped and counted rather than
+/// published torn, and the bin it missed is taken as seen, so the next
+/// attempt waits for the bin after it, as in the C.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct BinCounter {
+    last: u32,
+    read: u32,
+    skipped: u32,
+}
+
+impl BinCounter {
+    /// Nothing read yet. The C starts `last_bin` at 0, so bin 0 is never
+    /// read by the loop (the smoke test reads the first bin itself).
+    pub const fn new() -> Self {
+        Self {
+            last: 0,
+            read: 0,
+            skipped: 0,
+        }
+    }
+
+    /// Whether FEATURE_INDEX reading `index` means a bin not read yet.
+    pub const fn is_new(&self, index: u32) -> bool {
+        index != self.last
+    }
+
+    /// Bin `bin` was read. Returns whether a status report is due: every
+    /// [`STATUS_EVERY_BINS`]th bin read.
+    pub fn read(&mut self, bin: u32) -> bool {
+        self.last = bin;
+        self.read = self.read.wrapping_add(1);
+        self.read.is_multiple_of(STATUS_EVERY_BINS)
+    }
+
+    /// The hold never took effect; FEATURE_INDEX now reads `index`.
+    pub fn skipped(&mut self, index: u32) {
+        self.last = index;
+        self.skipped = self.skipped.wrapping_add(1);
+    }
+
+    /// Bins read since boot.
+    pub const fn read_count(&self) -> u32 {
+        self.read
+    }
+
+    /// Bins skipped since boot.
+    pub const fn skipped_count(&self) -> u32 {
+        self.skipped
+    }
+}
+
 /// A bin's time in seconds since the chain was reset: the `t` of its
 /// telemetry frame. The C computes `(float)bin * ((float)BIN_LEN /
 /// SWEEP_HZ)` in single precision; so does this, in the same order, so the

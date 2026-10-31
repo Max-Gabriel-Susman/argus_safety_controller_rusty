@@ -415,6 +415,60 @@ fn feat() {
     );
 }
 
+/// A bin whose channel `n` has count `n` and power `1000 + n`.
+fn numbered_bin(bin: u32) -> acq::Features {
+    let mut features = acq::Features::new(bin);
+    for n in 0..96u32 {
+        // count in bits 31:16, sum = (1000 + n) * 1500 in the low word.
+        features.set(n as usize, n << 16, (1000 + n) * 1500);
+    }
+    features
+}
+
+#[test]
+fn feature_lines_from_a_bin() {
+    // The C passes counts[0], power[0], counts[14], power[14] and, on the
+    // status line, counts[14], power[14], counts[75], power[75].
+    let features = numbered_bin(37);
+    assert_eq!(
+        AcqFeatures::new(&features, 2).to_string(),
+        "acq features: bin 37  ch0 count 0 power 1000  ch14 count 14 power 1014  dropped 2\r\n"
+    );
+    assert_eq!(
+        Feat::new(&features, 2).to_string(),
+        "feat: bin 37 dropped 2  ch14 count 14 power 1014  ch75 count 75 power 1075\r\n"
+    );
+}
+
+#[test]
+fn acq_timing_from_global_timer_ticks() {
+    // At 325 MHz, 96 reads of 1083 ns are 33790 ticks (103.97 us) and a
+    // 114 us frame read is 37050 ticks.
+    const HZ: u32 = 325_000_000;
+    let line = AcqTiming::from_ticks(33_790, 37_050, HZ);
+    assert_eq!(
+        line,
+        AcqTiming {
+            reg_ns: 1083,
+            frame_us: 114
+        }
+    );
+    // Rounded down: one tick short of 114 us reads 113.
+    assert_eq!(AcqTiming::from_ticks(0, 37_049, HZ).frame_us, 113);
+    // The C's hardcoded 333 ticks per us on the same 37050 ticks reads
+    // 111 us: the 2.5% it under-reports by on this board.
+    assert_eq!(37_050 / 333, 111);
+    // No rate, or a figure past u32, shows as the maximum.
+    assert_eq!(
+        AcqTiming::from_ticks(1, 1, 0),
+        AcqTiming {
+            reg_ns: u32::MAX,
+            frame_us: u32::MAX
+        }
+    );
+    assert_eq!(AcqTiming::from_ticks(0, u64::MAX, HZ).frame_us, u32::MAX);
+}
+
 #[test]
 fn the_longest_line_fits_the_console() {
     // Every field at its widest. The console drops a message of 320 bytes

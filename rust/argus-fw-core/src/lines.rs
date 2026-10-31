@@ -335,6 +335,32 @@ pub struct AcqTiming {
     pub frame_us: u32,
 }
 
+impl AcqTiming {
+    /// The figures from global timer ticks at `hz`: `reg_ticks` for 96
+    /// FRAME_INDEX reads, `frame_ticks` for FRAME\[0\] to FRAME\[95\]. Both
+    /// round down, as the C's integer division does.
+    ///
+    /// The C divides by a hardcoded 333 ticks per microsecond; the Arty's
+    /// timer runs at 325 MHz, so its figures read about 2.5% low. This
+    /// takes the rate the registers give. A figure that does not fit (or a
+    /// zero rate) shows as `u32::MAX`.
+    pub fn from_ticks(reg_ticks: u64, frame_ticks: u64, hz: u32) -> Self {
+        let per_read = u64::from(hz).checked_mul(CHANNELS as u64);
+        let reg_ns = reg_ticks
+            .checked_mul(1_000_000_000)
+            .zip(per_read)
+            .and_then(|(ns, per_read)| ns.checked_div(per_read));
+        let frame_us = frame_ticks
+            .checked_mul(1_000_000)
+            .and_then(|us| us.checked_div(u64::from(hz)));
+        let fit = |v: Option<u64>| v.and_then(|v| u32::try_from(v).ok()).unwrap_or(u32::MAX);
+        Self {
+            reg_ns: fit(reg_ns),
+            frame_us: fit(frame_us),
+        }
+    }
+}
+
 impl Display for AcqTiming {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
@@ -414,6 +440,22 @@ pub struct AcqFeatures {
     pub power14: u32,
     /// FEAT_DROPPED.
     pub dropped: u32,
+}
+
+impl AcqFeatures {
+    /// The line for `features`, with FEAT_DROPPED read as `dropped`.
+    pub fn new(features: &acq::Features, dropped: u32) -> Self {
+        let (count0, power0) = features.channel(0);
+        let (count14, power14) = features.channel(14);
+        Self {
+            bin: features.bin,
+            count0,
+            power0,
+            count14,
+            power14,
+            dropped,
+        }
+    }
 }
 
 impl Display for AcqFeatures {
@@ -648,6 +690,22 @@ pub struct Feat {
     pub count75: u16,
     /// Channel 75's power.
     pub power75: u32,
+}
+
+impl Feat {
+    /// The line for `features`, with FEAT_DROPPED read as `dropped`.
+    pub fn new(features: &acq::Features, dropped: u32) -> Self {
+        let (count14, power14) = features.channel(14);
+        let (count75, power75) = features.channel(75);
+        Self {
+            bin: features.bin,
+            dropped,
+            count14,
+            power14,
+            count75,
+            power75,
+        }
+    }
 }
 
 impl Display for Feat {

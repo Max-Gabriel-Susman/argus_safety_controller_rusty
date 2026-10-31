@@ -72,6 +72,46 @@ fn feature_words() {
 }
 
 #[test]
+fn features_decode_each_channel() {
+    let mut features = acq::Features::new(12);
+    // Channel 3: count 7, sum 0xABCD_1234_5678.
+    features.set(3, 0x0007_ABCD, 0x1234_5678);
+    assert_eq!(features.bin, 12);
+    assert_eq!(
+        features.channel(3),
+        (7, acq::feature_power(0x0007_ABCD, 0x1234_5678))
+    );
+    assert_eq!(features.channel(2), (0, 0));
+    // Past the last channel: ignored on the way in, zeros on the way out.
+    features.set(96, 0xFFFF_FFFF, 0xFFFF_FFFF);
+    assert_eq!(features.channel(96), (0, 0));
+    assert_eq!(features, {
+        let mut f = acq::Features::new(12);
+        f.set(3, 0x0007_ABCD, 0x1234_5678);
+        f
+    });
+}
+
+#[test]
+fn bin_counter_follows_the_main_loop() {
+    let mut bins = acq::BinCounter::new();
+    // last_bin starts at 0: bin 0 is not new, bin 1 is.
+    assert!(!bins.is_new(0));
+    assert!(bins.is_new(1));
+    assert!(!bins.read(1));
+    assert!(!bins.is_new(1));
+    // A hold that never took effect: skipped, and the index it read then
+    // is taken as seen.
+    bins.skipped(3);
+    assert!(!bins.is_new(3));
+    assert_eq!((bins.read_count(), bins.skipped_count()), (1, 1));
+    // The report falls on every 100th bin read, skips not counted.
+    let due: Vec<u32> = (4..400).filter(|&bin| bins.read(bin)).collect();
+    assert_eq!(due, [102, 202, 302]);
+    assert_eq!(bins.read_count(), 397);
+}
+
+#[test]
 fn bin_time_rounds_as_the_c_does() {
     // (float)bin * ((float)1500 / 30012.0f), in single precision.
     let step = 1500.0f32 / 30012.0f32;
