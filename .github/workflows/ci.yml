@@ -115,6 +115,92 @@ jobs:
       - uses: actions/checkout@v4
       - run: ./ci/hygiene.sh
 
+  rust:
+    name: rust workspace (host + cortex-a9)
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: rust
+    env:
+      CARGO_TERM_COLOR: always
+      TARGET: armv7a-none-eabihf
+      # gen-wire.sh refuses any other version: bindgen's wording changes
+      # between releases, and --check would fail for that alone.
+      BINDGEN_VERSION: 0.73.2
+    steps:
+      - uses: actions/checkout@v4
+
+      # rust-toolchain.toml is the one place the toolchain is named. With no
+      # argument, rustup installs what that file asks for: the channel, the
+      # clippy and rustfmt components and the A9 target.
+      - name: Install the pinned toolchain
+        run: |
+          rustup toolchain install
+          rustc --version
+          cargo --version
+
+      # Keyed on the lock file and the toolchain, so a dependency or compiler
+      # change starts a fresh cache rather than reusing stale artifacts.
+      - name: Cache cargo downloads and build output
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            rust/target
+          key: rust-${{ runner.os }}-${{ hashFiles('rust/rust-toolchain.toml', 'rust/Cargo.lock') }}
+          restore-keys: rust-${{ runner.os }}-
+
+      - name: Format
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (host, every target)
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      # Includes argus-difftest, which compiles the C replay client and
+      # frame packing with the runner's gcc and runs them beside the Rust.
+      - name: Test
+        run: cargo test --locked
+
+      # The no_std crates must also build for the Cortex-A9, where the
+      # firmware uses them; a host build would not catch a stray std use.
+      - name: Clippy (cortex-a9, no_std crates)
+        run: >-
+          cargo clippy --locked --target "$TARGET"
+          -p argus-wire -p argus-replay -p argus-fw-core -- -D warnings
+
+      - name: Build (cortex-a9, no_std crates)
+        run: >-
+          cargo build --locked --release --target "$TARGET"
+          -p argus-wire -p argus-replay -p argus-fw-core
+
+      - name: Rustdoc
+        run: cargo doc --locked --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+      # bindgen loads libclang at run time; libclang-dev also brings clang's
+      # own headers (stddef.h and friends), which argus_wire.h needs.
+      - name: Install libclang
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libclang-dev
+
+      # Building bindgen-cli takes minutes, so the binary is cached on its
+      # own, keyed on the version alone.
+      - name: Cache bindgen-cli
+        id: bindgen-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/bindgen
+          key: bindgen-cli-${{ runner.os }}-${{ env.BINDGEN_VERSION }}
+
+      - name: Install bindgen-cli
+        if: steps.bindgen-cache.outputs.cache-hit != 'true'
+        run: cargo install bindgen-cli --locked --version "$BINDGEN_VERSION"
+
+      - name: generated.rs matches argus_wire.h
+        run: bash tools/gen-wire.sh --check
+
   docs:
     name: Doxygen reference
     runs-on: ubuntu-24.04
