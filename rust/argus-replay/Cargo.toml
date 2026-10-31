@@ -1,0 +1,25 @@
+# argus-replay: the client side of the replay protocol, ported from
+# safety_controller/src/argus_replay_client.h.
+#
+# The protocol logic only: no sockets, no clock, no buffers of its own. The
+# firmware supplies those through the traits in src/io.rs, and the tests
+# supply vectors.
+
+[package]
+name = "argus-replay"
+description = "Argus replay client: request, reassemble and retransmit one burst of samples"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# The packet layouts and the CRC.
+argus-wire = { path = "../argus-wire" }
+# The IntoBytes and FromBytes traits, to turn the wire structs into bytes and
+# back without unsafe code. The same version argus-wire derives them with.
+zerocopy = "0.8"

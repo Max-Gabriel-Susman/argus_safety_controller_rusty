@@ -3,6 +3,14 @@
 version = 4
 
 [[package]]
+name = "argus-replay"
+version = "0.1.0"
+dependencies = [
+ "argus-wire",
+ "zerocopy",
+]
+
+[[package]]
 name = "argus-wire"
 version = "0.1.0"
 dependencies = [

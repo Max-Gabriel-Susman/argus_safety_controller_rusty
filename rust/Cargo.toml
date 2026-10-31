@@ -13,12 +13,12 @@
 [workspace]
 resolver = "3"
 
-members = ["argus-wire"]
+members = ["argus-wire", "argus-replay"]
 
 # What a bare `cargo build` or `cargo test` in rust/ acts on: every crate that
 # builds and tests on the host. The firmware binary, once it exists, stays
 # out of this list because it only builds for the A9.
-default-members = ["argus-wire"]
+default-members = ["argus-wire", "argus-replay"]
 
 [workspace.package]
 version = "0.1.0"
