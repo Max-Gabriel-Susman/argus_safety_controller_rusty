@@ -13,12 +13,12 @@
 [workspace]
 resolver = "3"
 
-members = ["argus-wire", "argus-replay"]
+members = ["argus-wire", "argus-replay", "argus-difftest"]
 
 # What a bare `cargo build` or `cargo test` in rust/ acts on: every crate that
 # builds and tests on the host. The firmware binary, once it exists, stays
 # out of this list because it only builds for the A9.
-default-members = ["argus-wire", "argus-replay"]
+default-members = ["argus-wire", "argus-replay", "argus-difftest"]
 
 [workspace.package]
 version = "0.1.0"
@@ -46,3 +46,14 @@ debug = true
 
 [profile.dev]
 panic = "abort"
+
+# The differential tests run millions of steps through both replay clients.
+# Unoptimized, a run takes over half a minute; optimized, a few seconds. The
+# clients under test are optimized with them, the C shim included (cc takes
+# its -O level from this profile), so what is compared is still what runs.
+[profile.dev.package.argus-difftest]
+opt-level = 2
+[profile.dev.package.argus-replay]
+opt-level = 2
+[profile.dev.package.argus-wire]
+opt-level = 2

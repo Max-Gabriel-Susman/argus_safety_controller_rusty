@@ -1,0 +1,30 @@
+# argus-difftest: the C firmware code and its Rust port, side by side.
+#
+# Compiles argus_replay_client.h and the frame packing of argus_net.c into a
+# small C shim (build.rs, csrc/shim.c) and drives them and the Rust crates
+# through the same seeded random scenarios. Host only: it links C built for
+# the machine running the tests, so it is never built for the A9.
+
+[package]
+name = "argus-difftest"
+description = "Differential tests: the C replay client and frame packing against the Rust port"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+argus-replay = { path = "../argus-replay" }
+argus-wire = { path = "../argus-wire" }
+# Reading the relay's view of a request, and writing chunk headers, as the
+# other crates do.
+zerocopy = "0.8"
+
+[build-dependencies]
+# Compiles the C shim with the host's C compiler and links it into the
+# tests. The usual way to build C from a build script.
+cc = "1.2"
