@@ -1,0 +1,42 @@
+# argus-fw: the safety controller firmware, the binary that runs on the
+# Zynq-7020's Cortex-A9.
+#
+# The only crate in the workspace that touches hardware, and so the only one
+# with unsafe code. It builds for armv7a-none-eabihf only, which is why it is
+# a member of the workspace but not a default member: a plain `cargo test` in
+# rust/ would otherwise try to build it for the host. Build it with
+# tools/build-fw.sh.
+
+[package]
+name = "argus-fw"
+description = "Argus safety controller firmware for the Zynq-7020 (Arty Z7-20), on Embassy"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+# The zynq7000 crates are unreleased, so they come from git, pinned to one
+# revision: the HAL's API moves between commits, and every crate below has to
+# agree on the same register definitions.
+[dependencies]
+# Runtime: the reset vector, the exception vectors, the MMU table and z7link.x.
+zynq7000-rt = { git = "https://github.com/ustgt-irs/zynq7000-rs", rev = "3a1f1bd7cb3ee8ed66bc55ee46849443da30ab79" }
+# The peripheral access crate: register blocks for every PS peripheral.
+zynq7000 = { git = "https://github.com/ustgt-irs/zynq7000-rs", rev = "3a1f1bd7cb3ee8ed66bc55ee46849443da30ab79" }
+# The HAL. time-driver-gtc makes the global timer embassy-time's clock.
+zynq7000-hal = { git = "https://github.com/ustgt-irs/zynq7000-rs", rev = "3a1f1bd7cb3ee8ed66bc55ee46849443da30ab79", features = ["time-driver-gtc"] }
+# CPU intrinsics, and the critical-section implementation (interrupts off)
+# that embassy and the HAL use on this single-core build.
+aarch32-cpu = { version = "0.4", features = ["critical-section-single-core"] }
+embassy-executor = { version = "0.10", features = ["platform-cortex-ar", "executor-thread"] }
+# One tick per microsecond, so the timing figures need no scaling.
+embassy-time = { version = "0.5", features = ["tick-hz-1_000_000"] }
+
+[[bin]]
+name = "argus-fw"
+test = false
+bench = false
