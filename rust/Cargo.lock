@@ -13,6 +13,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "argus-fw-core"
+version = "0.1.0"
+dependencies = [
+ "argus-wire",
+]
+
+[[package]]
 name = "argus-replay"
 version = "0.1.0"
 dependencies = [

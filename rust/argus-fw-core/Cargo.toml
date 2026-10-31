@@ -1,0 +1,22 @@
+# argus-fw-core: what the firmware decides, as opposed to what it touches.
+#
+# Register field decoding, the frame and feature arithmetic, the console
+# ring and the text of every console line. No registers, no UART, no
+# clock: the firmware reads the hardware and hands the numbers in, so all of
+# this is tested on the host.
+
+[package]
+name = "argus-fw-core"
+description = "Argus firmware logic: register fields, feature arithmetic, the console ring and its lines"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# The channel count, which the frame check and the telemetry frame share.
+argus-wire = { path = "../argus-wire" }
