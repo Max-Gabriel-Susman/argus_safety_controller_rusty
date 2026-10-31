@@ -81,20 +81,12 @@ pub fn print(args: fmt::Arguments<'_>) {
 }
 
 /// Messages dropped since boot.
-#[expect(
-    dead_code,
-    reason = "the heartbeat that printed it gave way to the tx line; the stream: rx line will"
-)]
 pub fn drops() -> u32 {
     RING.lock(|ring| ring.try_borrow().map_or(0, |ring| ring.drops()))
 }
 
 /// The longest message queued since the last call, in bytes, or 0 if none
 /// was; resets it.
-#[expect(
-    dead_code,
-    reason = "the heartbeat that printed it gave way to the tx line; the stream: rx line will"
-)]
 pub fn take_max_msg() -> u32 {
     RING.lock(|ring| {
         ring.try_borrow_mut()

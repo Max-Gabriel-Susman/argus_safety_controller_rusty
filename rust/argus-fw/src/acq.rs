@@ -26,6 +26,9 @@ use core::sync::atomic::{AtomicBool, Ordering};
 
 use argus_fw_core::acq::{self, BASE, ReplayStatus, reg};
 use argus_wire::frame::CHANNELS;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::mutex::Mutex;
+use static_cell::StaticCell;
 
 /// The register map, in address order. Fields whose name starts with `_`
 /// are gaps (they read 0xDEADBEEF) and get no accessors.
@@ -98,6 +101,24 @@ pub struct FeatureWords {
     pub lo: u32,
     /// The crossing count in bits 31:16, bits 47:32 of the sum below.
     pub hi: u32,
+}
+
+/// The registers as the tasks share them once the smoke test is done: the
+/// telemetry task reads the banks under their holds, the replay task reads
+/// REPLAY_STATUS, acks and switches the chain to external mode.
+///
+/// An async mutex rather than a critical section, so that a hold (up to
+/// 0.2 ms of GP0 reads) never runs with interrupts off. Neither task holds
+/// it across an await, so on this one-core executor it is always free when
+/// asked for; what it guarantees is that CTRL's read-modify-write in a hold
+/// and the replay task's CTRL writes can never interleave.
+pub type SharedAcq = Mutex<CriticalSectionRawMutex, Acq>;
+
+static SHARED: StaticCell<SharedAcq> = StaticCell::new();
+
+/// Hands `acq` over to the tasks; `None` if called a second time.
+pub fn share(acq: Acq) -> Option<&'static SharedAcq> {
+    SHARED.try_init(Mutex::new(acq)).map(|shared| &*shared)
 }
 
 /// STATUS never showed the held bit within [`acq::HOLD_SPIN_MAX`] polls.
@@ -180,10 +201,6 @@ impl Acq {
     }
 }
 
-#[expect(
-    dead_code,
-    reason = "the replay stream is the first user of the replay registers"
-)]
 impl Acq {
     /// The handle, the first time this is called; `None` after that.
     ///

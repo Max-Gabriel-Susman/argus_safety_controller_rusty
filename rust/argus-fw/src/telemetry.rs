@@ -15,6 +15,10 @@
 //! - The C ignores `udp_sendto()`'s result. Here a frame the socket cannot
 //!   take within [`SEND_WAIT`] is dropped and counted too, so a stuck
 //!   transmitter never stalls the bin loop.
+//! - The C's status block prints the stream report between the tx line and
+//!   the `feat:` line. Here the stream belongs to the replay task, so this
+//!   task asks it for the report (see [`replay::stream_report`]) and prints
+//!   it in the same place.
 //! - The frame lives on this task's stack only until smoltcp has copied it
 //!   into the socket's buffer, and from there into a GEM transmit buffer,
 //!   which the HAL cleans to DDR before the GEM is given it and does not
@@ -33,9 +37,10 @@ use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer, with_timeout};
 use static_cell::ConstStaticCell;
 
-use crate::acq::Acq;
+use crate::acq::SharedAcq;
 use crate::acq_check::frame_check;
 use crate::console::console;
+use crate::replay;
 
 /// How often FEATURE_INDEX is looked at. One GP0 read a millisecond costs
 /// the executor about 0.1% of its time.
@@ -145,20 +150,28 @@ impl Link {
 
 /// The main loop's telemetry half (see the module notes). `link` is `None`
 /// when there is no network; every frame then counts as unsent.
+///
+/// The registers are locked only while they are read, never across an
+/// await, so the replay task is never kept from them.
 #[embassy_executor::task]
-pub async fn telemetry(mut acq: Acq, mut link: Option<Link>) -> ! {
+pub async fn telemetry(acq: &'static SharedAcq, mut link: Option<Link>) -> ! {
     let mut bins = BinCounter::new();
     let mut unsent = UnsentCounter::new();
     loop {
         Timer::after(BIN_POLL).await;
-        if !bins.is_new(acq.feature_index()) {
-            continue;
-        }
-        // A hold that never took effect is a fabric problem, not a reason
-        // to publish a torn bin: skipped, counted, and shown on the tx line.
-        let Ok(features) = acq.read_features() else {
-            bins.skipped(acq.feature_index());
-            continue;
+        let features = {
+            let mut acq = acq.lock().await;
+            if !bins.is_new(acq.feature_index()) {
+                continue;
+            }
+            // A hold that never took effect is a fabric problem, not a
+            // reason to publish a torn bin: skipped, counted, and shown on
+            // the tx line.
+            let Ok(features) = acq.read_features() else {
+                bins.skipped(acq.feature_index());
+                continue;
+            };
+            features
         };
 
         let due = bins.read(features.bin);
@@ -188,6 +201,14 @@ pub async fn telemetry(mut acq: Acq, mut link: Option<Link>) -> ! {
             );
         }
         if due.status {
+            // The stream's three lines come first, as in the C. None while
+            // the replay task is not streaming.
+            if let Some(report) = replay::stream_report().await {
+                console!("{}", report.halves);
+                console!("{}", report.fetch);
+                console!("{}", report.rx);
+            }
+            let mut acq = acq.lock().await;
             console!("{}", Feat::new(&features, acq.feat_dropped()));
             let ext = acq.ext_mode();
             frame_check(&mut acq, ext);

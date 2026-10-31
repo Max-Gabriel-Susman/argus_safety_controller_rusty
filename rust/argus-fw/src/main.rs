@@ -6,7 +6,9 @@
 //! check; runs the C's acquisition smoke test; brings up GEM0 and the IP
 //! stack (it answers ping at 192.168.1.10); then starts the telemetry task,
 //! which sends every feature bin to the host, and the replay task, which
-//! fetches one half from the relay. Every print goes through the console
+//! fetches one half from the relay and then keeps the PL's replay BRAM fed
+//! (the chips then play the dataset instead of their built-in pattern).
+//! Every print goes through the console
 //! ring and returns at once; a task of its own feeds the UART. A panic or a
 //! CPU exception prints one line saying what and where, then parks the
 //! core.
@@ -29,7 +31,7 @@ mod telemetry;
 use aarch32_cpu::asm::nop;
 use argus_fw_core::lines::{
     Banner, Clk, Fault, FaultKind, INITIALIZING, PRINT_TEST_BYTES, Panic, PrintTest, PrintTime,
-    REPLAY_INIT_FAILED, ReplayClock,
+    REPLAY_BRAM_CACHEABLE, REPLAY_INIT_FAILED, ReplayClock,
 };
 use core::panic::PanicInfo;
 use embassy_executor::Spawner;
@@ -107,6 +109,9 @@ async fn main(spawner: Spawner) -> ! {
     };
     acq_check::smoke_test(&mut acq, clocks.arm_clocks().cpu_3x2x_clk()).await;
 
+    // From here the telemetry and replay tasks share the registers.
+    let Some(acq) = acq::share(acq) else { park() };
+
     // When there is no network (no PHY found) the bins are still read and
     // reported, and every frame counts as unsent.
     let stack = net::start(spawner, periphs.eth_0, mio.mio9, &clocks).await;
@@ -116,11 +121,19 @@ async fn main(spawner: Spawner) -> ! {
     };
     spawner.spawn(telemetry);
 
-    // The C stops at a replay init failure; here telemetry carries on.
+    // argus_replay_init(). The C stops at a replay init failure; here
+    // telemetry carries on.
     if let Some(stack) = stack {
+        let bram = bram::ReplayBram::take();
+        if bram.is_some() {
+            console!("{REPLAY_BRAM_CACHEABLE}");
+        }
         let task = replay::socket(stack)
             .zip(argus_fw_core::replay::client())
-            .and_then(|(socket, client)| replay::replay(stack, socket, client).ok());
+            .zip(bram)
+            .and_then(|((socket, client), bram)| {
+                replay::replay(stack, socket, client, acq, bram).ok()
+            });
         match task {
             Some(task) => spawner.spawn(task),
             None => console!("{REPLAY_INIT_FAILED}"),
