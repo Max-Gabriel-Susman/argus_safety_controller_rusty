@@ -37,7 +37,7 @@ jobs:
         run: |
           up="_upstream/${UPSTREAM_WIRE}"
           if [ ! -f "$up" ]; then
-            echo "::error::upstream header not at $up — files present:"
+            echo "::error::upstream header not at $up; files present:"
             find _upstream -name 'argus_wire.h'
             exit 1
           fi
@@ -60,53 +60,20 @@ jobs:
           sudo apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi
           arm-none-eabi-gcc --version | head -1
 
-      - name: Host build (x86-64) — static asserts plus runtime CRC vectors
+      - name: Host build (x86-64), static asserts plus runtime CRC vectors
         run: |
           gcc -std=c11 -Wall -Wextra -Werror -Wpedantic \
               -Isafety_controller/src -Ici/stubs \
               ci/wire_selftest.c -o wire_selftest_host
           ./wire_selftest_host
 
-      - name: Target build (cortex-a9) — static asserts only
+      - name: Target build (cortex-a9), static asserts only
         run: |
           arm-none-eabi-gcc -std=c11 -Wall -Wextra -Werror -Wpedantic \
               -mcpu=cortex-a9 -mfpu=vfpv3 -mfloat-abi=hard \
               -Isafety_controller/src -Ici/stubs \
               -c ci/wire_selftest.c -o wire_selftest_a9.o
           arm-none-eabi-size wire_selftest_a9.o
-
-  firmware-build:
-    name: off-target compile
-    runs-on: ubuntu-24.04
-    # Flip to false once ci/compile_allowlist.txt is populated and green.
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install arm-none-eabi toolchain
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi
-
-      - name: Compile allowlisted translation units
-        run: |
-          if [ ! -f ci/compile_allowlist.txt ]; then
-            echo "::warning::ci/compile_allowlist.txt absent — run ci/probe_sources.sh locally"
-            exit 0
-          fi
-          fails=0
-          while read -r f; do
-            case "$f" in ''|'#'*) continue ;; esac
-            printf 'CC  %s\n' "$f"
-            arm-none-eabi-gcc -std=c11 -Os \
-              -mcpu=cortex-a9 -mfpu=vfpv3 -mfloat-abi=hard -marm \
-              -Ici/stubs -Isrc \
-              -Isrc/lwip/src/include \
-              -Isrc/lwip/contrib/ports/xilinx/include \
-              -c "$f" -o /dev/null || { echo "::error file=$f::compile failed"; fails=$((fails+1)); }
-          done < ci/compile_allowlist.txt
-          echo "$fails failure(s)"
-          [ "$fails" -eq 0 ]
 
   hygiene:
     name: hygiene
@@ -200,15 +167,3 @@ jobs:
 
       - name: generated.rs matches argus_wire.h
         run: bash tools/gen-wire.sh --check
-
-  docs:
-    name: Doxygen reference
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Doxygen and Graphviz
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq doxygen graphviz
-
-      - name: Build the reference with warnings as errors
-        run: ( cat Doxyfile; echo "WARN_AS_ERROR = FAIL_ON_WARNINGS" ) | doxygen -

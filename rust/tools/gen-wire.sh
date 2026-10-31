@@ -4,8 +4,8 @@
 #   bash rust/tools/gen-wire.sh           regenerate the file
 #   bash rust/tools/gen-wire.sh --check   fail if the committed file is stale
 #
-# The input is safety_controller/src/argus_wire.h, the copy the C firmware
-# builds against. The vendor-drift CI job holds that copy equal to
+# The input is safety_controller/src/argus_wire.h, the vendored copy of
+# argus_core's header. The vendor-drift CI job holds that copy equal to
 # argus_core's, and --check holds generated.rs equal to it, so every link
 # from argus_core to the Rust structs has a check.
 set -euo pipefail

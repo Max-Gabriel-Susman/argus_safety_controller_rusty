@@ -52,7 +52,7 @@ first build.
 
 **Vitis.** Only its `xsdb` is needed to program the board (at
 `/tools/Xilinx/2026.1/Vitis`, or wherever `XILINX_VITIS` says). The IDE is
-needed only to build the C firmware or its platform.
+needed only to rebuild a Vitis platform.
 
 **Serial.** Membership of `dialout`, once, then log out and back in (group
 membership is read at login, so a new terminal is not enough):
@@ -89,8 +89,9 @@ python3 ~/Documents/argus_ws/src/argus_sim/tools/nwb_to_replay.py \
 **The hardware.** `tools/program.sh` needs a bitstream and the PS
 initialisation (`ps7_init.tcl`) to go with the ELF. It takes them from an
 exported XSA (`ARGUS_XSA=...`), or from a Vitis platform build: this
-checkout's, then the C checkout's, then the gateware's own export
-(`~/Documents/argus-neural-codec/argus_neural_codec.xsa`). After a
+checkout's if one is left from the C firmware, then the C firmware's
+checkout (`~/Documents/argus_safety_controller`), then the gateware's own
+export (`~/Documents/argus-neural-codec/argus_neural_codec.xsa`). After a
 gateware build, either point `ARGUS_XSA` at the new export or update the
 platform in Vitis (`arty_z7_platform`, Settings, `vitis-comp.json`, Update
 XSA, then build the platform). The `program: bit` line it prints has the
@@ -371,7 +372,6 @@ pulling the USB cable: pulling it under a live session wedges XSDB.
 | `pgrep -af -- --ros-args` lists nodes before a run | a previous launch left a node alive | `kill` it; a stale relay still owns UDP 5010 |
 | Receiver `ver=` climbing, `ok=0` | the host's `argus_wire.h` is behind the board's | sync from `argus_core`, rebuild `argus_sensors` |
 
-The C firmware is still in `safety_controller/` and runs the same way:
-build it with `tools/build_firmware.sh`, then
-`ARGUS_ELF=safety_controller/build/safety_controller.elf tools/program.sh`
-(or `hwtest.sh` without `--repo`, which programs the C checkout).
+The C firmware is no longer in this repository (commit 604e49b is the last
+with it). Its own checkout, `~/Documents/argus_safety_controller`, still
+builds in Vitis, and `hwtest.sh` without `--repo` programs that checkout.

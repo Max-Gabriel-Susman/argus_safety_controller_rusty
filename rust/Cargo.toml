@@ -4,12 +4,13 @@
 # target/ directory, and the profiles below.
 #
 #
-# The firmware is moving to Rust whole: everything that runs on the
-# Cortex-A9 becomes Rust on Embassy, with smoltcp in place of lwIP. The C
-# application in safety_controller/ is the specification until the Rust
-# firmware matches it on the board. The library crates are no_std and
-# host-tested; only the firmware binary is built for the A9, with an
-# explicit --target (see .cargo/config.toml).
+# The firmware is Rust whole: everything that runs on the Cortex-A9 is
+# Rust on Embassy, with smoltcp in place of lwIP. It replaced a C
+# application (the Vitis standalone BSP and lwIP); of that, only the wire
+# contract and the replay client header remain, in safety_controller/src,
+# as gen-wire.sh's input and argus-difftest's oracle. The library crates
+# are no_std and host-tested; only the firmware binary is built for the
+# A9, with an explicit --target (see .cargo/config.toml).
 [workspace]
 resolver = "3"
 

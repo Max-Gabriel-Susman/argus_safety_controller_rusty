@@ -1,6 +1,6 @@
-//! Compiles csrc/shim.c, and with it the firmware's argus_replay_client.h
-//! and argus_wire.h straight from safety_controller/src: the tests run the
-//! C exactly as the firmware builds it, not a copy that could drift.
+//! Compiles csrc/shim.c, and with it argus_replay_client.h and argus_wire.h
+//! straight from safety_controller/src: the tests run the C exactly as the
+//! C firmware built it, not a copy that could drift.
 
 fn main() {
     let c_src = "../../safety_controller/src";

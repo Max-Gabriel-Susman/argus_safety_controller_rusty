@@ -2,12 +2,10 @@
  *
  * Standalone ABI check for argus_wire.h
  *
- * Lives outside safety_controller/src on purpose: that directory
- * is collected by file(GLOB) into the firmware build, and a second
- * main() there breaks the link. CI compiles this file with the
- * -Isafety_controller/src, so the quoted include still resolves to
- * the vendored header; checking the copy the firmware actually
- * uses, not the one in argus_core.
+ * CI compiles this file with -Isafety_controller/src, so the quoted
+ * include resolves to the vendored header: the copy the Rust structs
+ * are generated from (rust/tools/gen-wire.sh), not the one in
+ * argus_core.
  *
  * Run under both the host compiler and arm-none-eabi-gcc. The
  * static_asserts in the header fire at compile time under each; the

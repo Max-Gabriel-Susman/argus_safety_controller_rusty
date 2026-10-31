@@ -3,9 +3,14 @@
 /log/
 /.colcon/
 /.ros/
+# Vitis output. The C application is gone, but a checkout that once built
+# it keeps the platform and the app's _ide/, and tools/program.sh still
+# takes the bitstream and ps7_init.tcl from there when they exist.
 arty_z7_platform/
 _ide/
 .rigel_lopper/
+safety_controller/build/
+safety_controller/export/
 
 CMakeCache.txt
 CMakeFiles/
