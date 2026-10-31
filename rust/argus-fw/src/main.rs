@@ -3,7 +3,8 @@
 //! For now: the HAL, embassy-time on the global timer and the console. It
 //! prints the banner the harness anchors on, the C's first line, the clocks
 //! as the registers set them, a timed long print and the C's replay clock
-//! check; runs the C's acquisition smoke test; then starts the feature loop
+//! check; runs the C's acquisition smoke test; then starts the feature
+//! loop, brings up GEM0 and the IP stack (it answers ping at 192.168.1.10)
 //! and prints a heartbeat every 5 s. Every print goes through the console
 //! ring and returns at once; a task of its own feeds the UART. A panic or a
 //! CPU exception prints one line saying what and where, then parks the
@@ -20,6 +21,7 @@ mod acq;
 mod acq_check;
 mod bram;
 mod console;
+mod net;
 
 use aarch32_cpu::asm::nop;
 use argus_fw_core::lines::{
@@ -108,6 +110,10 @@ async fn main(spawner: Spawner) -> ! {
         park()
     };
     spawner.spawn(feature_loop);
+
+    // The telemetry and replay sockets will be opened on this stack. When
+    // there is none (no PHY found) the acquisition side still runs.
+    let _stack = net::start(spawner, periphs.eth_0, mio.mio9, &clocks).await;
 
     let mut ticker = Ticker::every(HEARTBEAT_PERIOD);
     let mut beats: u32 = 0;

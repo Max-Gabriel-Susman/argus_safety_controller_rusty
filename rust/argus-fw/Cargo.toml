@@ -40,7 +40,19 @@ zynq7000-hal = { git = "https://github.com/ustgt-irs/zynq7000-rs", rev = "3a1f1b
 # CPU intrinsics, and the critical-section implementation (interrupts off)
 # that embassy and the HAL use on this single-core build.
 aarch32-cpu = { version = "0.4", features = ["critical-section-single-core"] }
+# The HAL's MDIO calls take the PHY and register numbers as 5-bit integers
+# from this crate. The version the HAL uses.
+arbitrary-int = "2"
 embassy-executor = { version = "0.10", features = ["platform-cortex-ar", "executor-thread"] }
+# The IP stack (smoltcp underneath) over the HAL's GEM driver: ARP, IPv4
+# and the ICMP echo replies the ping check needs. UDP is the one socket
+# type the firmware uses (telemetry and replay), and smoltcp refuses to
+# build with none.
+embassy-net = { version = "0.9", features = ["medium-ethernet", "proto-ipv4", "udp", "auto-icmp-echo-reply"] }
+# Places the stack's resources, the GEM's frame buffers and the descriptor
+# lists in statics that are handed out once as `&'static mut`, without an
+# unsafe block per buffer. The version the HAL examples use.
+static_cell = "2"
 # The console ring's mutex (a critical section) and the signal that wakes
 # the console task; the version the HAL already uses.
 embassy-sync = "0.8"
