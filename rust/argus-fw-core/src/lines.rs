@@ -232,6 +232,25 @@ pub struct ReplayClock {
 }
 
 impl ReplayClock {
+    /// The line for `ticks` of a timer counting at `hz`, in whole
+    /// milliseconds rounded down, by the C's `t / (COUNTS_PER_SECOND /
+    /// 1000)`.
+    ///
+    /// The C converts each reading to milliseconds and subtracts, so a
+    /// 10.01 ms sleep reads 10 or 11 depending on where the first reading
+    /// fell within its millisecond. This converts the difference of the raw
+    /// readings instead, which reads 10 every time. A timer clock under
+    /// 1 kHz has no millisecond divisor; the line then shows `u32::MAX` and
+    /// warns that the clock is too fast, since nothing it measures can be
+    /// trusted. Likewise a difference too large for a `u32`.
+    pub fn from_ticks(ticks: u64, hz: u32) -> Self {
+        let ms = ticks
+            .checked_div(u64::from(hz / 1000))
+            .and_then(|ms| u32::try_from(ms).ok())
+            .unwrap_or(u32::MAX);
+        Self { ms }
+    }
+
     /// The warning to print after this line, if any: a clock that barely
     /// moves never fires a retransmit, one that races fires them before the
     /// replies can arrive.

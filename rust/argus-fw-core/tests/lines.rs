@@ -92,6 +92,26 @@ fn replay_clock_and_its_warnings() {
 }
 
 #[test]
+fn replay_clock_from_global_timer_ticks() {
+    // The Arty's global timer runs at 325 MHz: 325000 ticks per ms.
+    const HZ: u32 = 325_000_000;
+    // A 10 ms sleep that overran by a few microseconds still reads 10.
+    assert_eq!(ReplayClock::from_ticks(3_250_000, HZ).ms, 10);
+    assert_eq!(ReplayClock::from_ticks(3_254_000, HZ).ms, 10);
+    // One tick short of 10 ms reads 9: whole milliseconds, rounded down.
+    assert_eq!(ReplayClock::from_ticks(3_249_999, HZ).ms, 9);
+    // A timer believed to run at the C's 333 MHz but really at 325 MHz
+    // makes 10 ms read 9: the 2.5% error the C carries.
+    assert_eq!(ReplayClock::from_ticks(3_250_000, 333_333_333).ms, 9);
+    // No millisecond divisor, or a figure past u32: shown as the maximum,
+    // which the too-fast warning follows.
+    assert_eq!(ReplayClock::from_ticks(3_250_000, 0).ms, u32::MAX);
+    assert_eq!(ReplayClock::from_ticks(3_250_000, 999).ms, u32::MAX);
+    assert_eq!(ReplayClock::from_ticks(u64::MAX, HZ).ms, u32::MAX);
+    assert!(ReplayClock::from_ticks(1, 0).warning().is_some());
+}
+
+#[test]
 fn acq_id_accepted() {
     // xil_printf("acq id=%08x\r\n", id);
     assert_eq!(AcqId { id: 0x4143_5133 }.to_string(), "acq id=41435133\r\n");
