@@ -35,6 +35,9 @@ zynq7000-hal = { git = "https://github.com/ustgt-irs/zynq7000-rs", rev = "3a1f1b
 # that embassy and the HAL use on this single-core build.
 aarch32-cpu = { version = "0.4", features = ["critical-section-single-core"] }
 embassy-executor = { version = "0.10", features = ["platform-cortex-ar", "executor-thread"] }
+# The console ring's mutex (a critical section) and the signal that wakes
+# the console task; the version the HAL already uses.
+embassy-sync = "0.8"
 # One tick per microsecond, so the timing figures need no scaling.
 embassy-time = { version = "0.5", features = ["tick-hz-1_000_000"] }
 

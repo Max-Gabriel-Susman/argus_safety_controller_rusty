@@ -2,9 +2,10 @@
 //!
 //! For now: the HAL, embassy-time on the global timer and the console. It
 //! prints the banner the harness anchors on, the C's first line, the clocks
-//! as the registers set them, and then a heartbeat every 5 s. A panic or a
-//! CPU exception prints one line saying what and where, then parks the
-//! core.
+//! as the registers set them, a timed long print, and then a heartbeat
+//! every 5 s. Every print goes through the console ring and returns at
+//! once; a task of its own feeds the UART. A panic or a CPU exception
+//! prints one line saying what and where, then parks the core.
 //!
 //! Errors before the console exists park the core silently, because there
 //! is nowhere to say anything; the workspace lints deny `unwrap`, so each
@@ -16,13 +17,16 @@
 mod console;
 
 use aarch32_cpu::asm::nop;
-use argus_fw_core::lines::{Banner, Clk, Fault, FaultKind, Heartbeat, INITIALIZING, Panic};
+use argus_fw_core::lines::{
+    Banner, Clk, Fault, FaultKind, Heartbeat, INITIALIZING, PRINT_TEST_BYTES, Panic, PrintTest,
+    PrintTime,
+};
 use core::panic::PanicInfo;
 use embassy_executor::Spawner;
-use embassy_time::{Duration, Ticker};
+use embassy_time::{Duration, Instant, Ticker};
 use zynq7000_hal::{clocks, generic_interrupt_handler, gpio, gtc, time::Hertz, uart};
 
-use crate::console::{Console, emergency_print};
+use crate::console::{console, emergency_print};
 
 // Linked for its reset vector, exception vectors and MMU table; nothing in it
 // is called by name.
@@ -44,7 +48,7 @@ fn entry_point() -> ! {
 }
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner) -> ! {
+async fn main(spawner: Spawner) -> ! {
     let Ok(periphs) = zynq7000_hal::init(zynq7000_hal::Config::default()) else {
         park()
     };
@@ -70,11 +74,15 @@ async fn main(_spawner: Spawner) -> ! {
     ) else {
         park()
     };
-    let mut console = Console::new(uart);
+    let tx = console::start(uart);
+    let Ok(drain) = console::drain(tx) else {
+        park()
+    };
+    spawner.spawn(drain);
 
-    console.print(format_args!("{}", Banner { rev: REV }));
-    console.print(format_args!("{INITIALIZING}"));
-    console.print(format_args!(
+    console!("{}", Banner { rev: REV });
+    console!("{INITIALIZING}");
+    console!(
         "{}",
         Clk {
             apu: clocks.arm_clocks().cpu_6x4x_clk().to_raw(),
@@ -82,20 +90,39 @@ async fn main(_spawner: Spawner) -> ! {
             iopll: clocks.io_clocks().ref_clk().to_raw(),
             uart: clocks.io_clocks().uart_clk().to_raw(),
         }
-    ));
+    );
+    time_a_long_print();
 
     let mut ticker = Ticker::every(HEARTBEAT_PERIOD);
     let mut beats: u32 = 0;
     loop {
         ticker.next().await;
         beats = beats.wrapping_add(1);
-        let line = Heartbeat {
-            n: beats,
-            con_drops: console.drops(),
-            con_max: console.take_max_msg(),
-        };
-        console.print(format_args!("{line}"));
+        console!(
+            "{}",
+            Heartbeat {
+                n: beats,
+                con_drops: console::drops(),
+                con_max: console::take_max_msg(),
+            }
+        );
     }
+}
+
+/// Prints the 300-byte test line and then how long that print took, the
+/// evidence that no print waits for the UART (the line is 26 ms of wire
+/// time). New: the C has no such check.
+fn time_a_long_print() {
+    let start = Instant::now();
+    console!("{PrintTest}");
+    let us = start.elapsed().as_micros();
+    console!(
+        "{}",
+        PrintTime {
+            bytes: u32::try_from(PRINT_TEST_BYTES).unwrap_or(u32::MAX),
+            us: u32::try_from(us).unwrap_or(u32::MAX),
+        }
+    );
 }
 
 /// Stop here for good.

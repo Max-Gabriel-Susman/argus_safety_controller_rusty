@@ -89,6 +89,7 @@ dependencies = [
  "aarch32-cpu 0.4.0",
  "argus-fw-core",
  "embassy-executor",
+ "embassy-sync",
  "embassy-time",
  "zynq7000",
  "zynq7000-hal",
