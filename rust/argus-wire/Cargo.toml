@@ -18,4 +18,9 @@ publish.workspace = true
 [lints]
 workspace = true
 
-# No [dependencies]: everything here comes from `core`.
+[dependencies]
+# Safe conversions between bytes and the packed wire structs. The derives on
+# the generated structs prove at compile time that the structs have no
+# padding and that every byte pattern is a valid value, so viewing a received
+# datagram as a header needs no unsafe code. Works under no_std.
+zerocopy = { version = "0.8", features = ["derive"] }
