@@ -2,8 +2,8 @@
 //!
 //! For now: the HAL, embassy-time on the global timer and the console. It
 //! prints the banner the harness anchors on, the C's first line, the clocks
-//! as the registers set them, a timed long print, and then a heartbeat
-//! every 5 s. Every print goes through the console ring and returns at
+//! as the registers set them, a timed long print, the C's replay clock
+//! check, and then a heartbeat every 5 s. Every print goes through the console ring and returns at
 //! once; a task of its own feeds the UART. A panic or a CPU exception
 //! prints one line saying what and where, then parks the core.
 //!
@@ -19,11 +19,11 @@ mod console;
 use aarch32_cpu::asm::nop;
 use argus_fw_core::lines::{
     Banner, Clk, Fault, FaultKind, Heartbeat, INITIALIZING, PRINT_TEST_BYTES, Panic, PrintTest,
-    PrintTime,
+    PrintTime, ReplayClock,
 };
 use core::panic::PanicInfo;
 use embassy_executor::Spawner;
-use embassy_time::{Duration, Instant, Ticker};
+use embassy_time::{Duration, Instant, Ticker, Timer};
 use zynq7000_hal::{clocks, generic_interrupt_handler, gpio, gtc, time::Hertz, uart};
 
 use crate::console::{console, emergency_print};
@@ -92,6 +92,7 @@ async fn main(spawner: Spawner) -> ! {
         }
     );
     time_a_long_print();
+    check_clock(clocks.arm_clocks().cpu_3x2x_clk()).await;
 
     let mut ticker = Ticker::every(HEARTBEAT_PERIOD);
     let mut beats: u32 = 0;
@@ -123,6 +124,39 @@ fn time_a_long_print() {
             us: u32::try_from(us).unwrap_or(u32::MAX),
         }
     );
+}
+
+/// The C's `argus_check_clock()`: sleeps 10 ms and prints how far the
+/// global timer moved meanwhile, with a warning when that is outside 5 to
+/// 20 ms. If the clock the replay client times out on did not advance, a
+/// lost chunk would hang a fetch instead of being retransmitted.
+///
+/// The C busy-waits in `usleep()` and reads the same timer it slept on.
+/// Here the sleep is an embassy-time timer, so the executor runs the other
+/// tasks meanwhile, and the measurement is the raw global timer at its
+/// clock as the registers give it (`gtc_hz`). The two agree only if the
+/// time driver's tick conversion is right, which is what this checks.
+async fn check_clock(gtc_hz: Hertz) {
+    let start = read_global_timer();
+    Timer::after(Duration::from_millis(10)).await;
+    let ticks = read_global_timer().wrapping_sub(start);
+
+    let line = ReplayClock::from_ticks(ticks, gtc_hz.to_raw());
+    console!("{line}");
+    if let Some(warning) = line.warning() {
+        console!("{warning}");
+    }
+}
+
+/// The global timer's 64-bit count. It counts CPU_3x2x cycles: the time
+/// driver set its prescaler to 0 when it took the timer.
+fn read_global_timer() -> u64 {
+    // SAFETY: this handle only reads the two count registers, which the
+    // time driver never writes after enabling the timer; reading them races
+    // with nothing (the HAL's own `now()` steals the timer the same way).
+    // The clock argument is unused by `read_timer`.
+    let gtc = unsafe { gtc::GlobalTimerCounter::steal_fixed(None) };
+    gtc.read_timer()
 }
 
 /// Stop here for good.
