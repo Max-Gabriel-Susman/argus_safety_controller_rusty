@@ -13,6 +13,9 @@ fn register_offsets() {
     assert_eq!(reg::REPLAY_ACK, 0x014);
     assert_eq!(reg::FEATURE_INDEX, 0x018);
     assert_eq!(reg::FEAT_DROPPED, 0x01C);
+    // From argus_acq_axi.vhd; argus_acq.h predates ACQ4.
+    assert_eq!(reg::LANE_SRC, 0x020);
+    assert_eq!(reg::MISO_DELAY, 0x024);
     assert_eq!(reg::frame(0), 0x100);
     assert_eq!(reg::frame(95), 0x27C);
     assert_eq!(reg::feature_lo(0), 0x400);
@@ -21,6 +24,18 @@ fn register_offsets() {
     assert_eq!(reg::feature_hi(95), 0x6FC);
     // The last register lies inside the 4 KB block.
     assert!(reg::feature_hi(95) < 0x1000);
+}
+
+#[test]
+fn bram_layout() {
+    use acq::bram;
+    assert_eq!(bram::BASE, 0x4000_0000);
+    assert_eq!(bram::SIZE, 0x1_0000);
+    // ARGUS_BRAM_HALF_BYTES: 147 samples x 96 channels x 2 bytes.
+    assert_eq!(bram::HALF_BYTES, 28_224);
+    // Half 1's offset, as the gateware expects it. That the two halves fit
+    // and are whole cache lines is asserted at compile time in the crate.
+    assert_eq!(bram::HALF_BYTES, 0x6E40);
 }
 
 #[test]

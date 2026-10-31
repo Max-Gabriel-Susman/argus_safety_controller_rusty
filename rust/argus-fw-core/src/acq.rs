@@ -32,6 +32,13 @@ pub mod reg {
     pub const FEATURE_INDEX: usize = 0x018;
     /// Bins lost because a feat_hold outlasted a whole bin.
     pub const FEAT_DROPPED: usize = 0x01C;
+    /// ACQ4 only: which source feeds each lane. Its reset value, 0, is the
+    /// in-fabric chip models, which is what this firmware runs on, so it is
+    /// never written. On ACQ3 it reads 0xDEADBEEF.
+    pub const LANE_SRC: usize = 0x020;
+    /// ACQ4 only: per-lane MISO capture delay, for external chips. Never
+    /// written, for the same reason as [`LANE_SRC`].
+    pub const MISO_DELAY: usize = 0x024;
 
     /// FRAME\[n\]: channel `n`'s sample in the held frame, in the low 16
     /// bits.
@@ -196,6 +203,47 @@ pub fn check_frame(frame: &[u16; CHANNELS]) -> FrameCheck {
 pub const fn expected_index(frame_index: u32) -> u8 {
     let [low, ..] = frame_index.wrapping_sub(1).to_le_bytes();
     low
+}
+
+/// The replay BRAM aperture: two halves, sample-major and channel-minor,
+/// matching the relay's chunk payload so that chunks are copied in
+/// unchanged. The PL plays one half while the PS refills the other.
+pub mod bram {
+    use argus_wire::generated::{ARGUS_MAX_CHANNELS, ARGUS_REPLAY_SAMPLES_PER_HALF};
+
+    /// Base address of the aperture, pinned in the block design.
+    pub const BASE: usize = 0x4000_0000;
+
+    /// Size of the aperture: 64 KB of BRAM.
+    pub const SIZE: usize = 0x1_0000;
+
+    /// The number of halves.
+    pub const HALVES: usize = 2;
+
+    /// One half: 147 samples of 96 little-endian `u16` channels, 28224
+    /// bytes. Half `h` starts at `h * HALF_BYTES`, as `ARGUS_BRAM_HALF(h)`.
+    pub const HALF_BYTES: usize =
+        ARGUS_REPLAY_SAMPLES_PER_HALF as usize * ARGUS_MAX_CHANNELS as usize * 2;
+
+    /// The A9's L1 and L2 line length. Each half is cleaned to memory before
+    /// it is acked, so both its start and its length must be whole lines, or
+    /// the clean would reach into the half the PL is playing.
+    pub const CACHE_LINE: usize = 32;
+
+    // The C checks the first with #error; the other two are what make the
+    // per-half clean exact.
+    const _: () = assert!(
+        HALVES * HALF_BYTES <= SIZE,
+        "two halves do not fit the aperture"
+    );
+    const _: () = assert!(
+        HALF_BYTES.is_multiple_of(CACHE_LINE),
+        "a half is not whole cache lines"
+    );
+    const _: () = assert!(
+        BASE.is_multiple_of(CACHE_LINE),
+        "the aperture is not line aligned"
+    );
 }
 
 /// REPLAY_STATUS, decoded.
