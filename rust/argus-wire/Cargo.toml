@@ -1,0 +1,21 @@
+# argus-wire: the wire contract between the board and the host, in Rust.
+#
+# Every key ending in .workspace is inherited from [workspace.package] in
+# ../Cargo.toml, so the version, edition, compiler floor and license are
+# written once for the whole workspace.
+
+[package]
+name = "argus-wire" # code imports it as argus_wire: Rust turns - into _
+description = "Argus wire contract: CRC-16, packet layouts, packet validation"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Opts this crate into [workspace.lints]. Without it, the deny list in
+# ../Cargo.toml does not apply here.
+[lints]
+workspace = true
+
+# No [dependencies]: everything here comes from `core`.
