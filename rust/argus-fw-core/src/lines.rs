@@ -14,7 +14,8 @@
 //! counters the C reads.
 //!
 //! A few lines have no C equivalent: [`Banner`], [`Clk`], [`Heartbeat`],
-//! [`Panic`] and [`Fault`]. They follow the same rules.
+//! [`PrintTest`], [`PrintTime`], [`Panic`] and [`Fault`]. They follow the
+//! same rules.
 
 use core::fmt::{self, Display, Formatter};
 
@@ -85,6 +86,50 @@ impl Display for Heartbeat {
             "hb {} con drop={} max={}\r\n",
             self.n, self.con_drops, self.con_max
         )
+    }
+}
+
+/// The length of [`PrintTest`], line end included.
+pub const PRINT_TEST_BYTES: usize = 300;
+
+/// `con: print test 0123456789...`: one [`PRINT_TEST_BYTES`]-byte line,
+/// printed once at boot so the firmware can time how long a long print
+/// holds the caller (see [`PrintTime`]). The digits repeat so that a
+/// truncated or mangled copy on the terminal is easy to spot. New.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PrintTest;
+
+impl Display for PrintTest {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        const HEAD: &str = "con: print test ";
+        const DIGITS: &str = "0123456789";
+        f.write_str(HEAD)?;
+        // Whole runs of digits, then the part of one that is left, so the
+        // formatter sees a few long writes, as it does for a real line.
+        let mut left = PRINT_TEST_BYTES - HEAD.len() - "\r\n".len();
+        while left > 0 {
+            let run = DIGITS.get(..left.min(DIGITS.len())).unwrap_or(DIGITS);
+            f.write_str(run)?;
+            left -= run.len();
+        }
+        f.write_str("\r\n")
+    }
+}
+
+/// `con: <bytes>-byte print took <us> us`: how long printing [`PrintTest`]
+/// kept the caller, which is the proof that a print does not wait for the
+/// UART (at 115200 baud the line itself takes 26 ms on the wire). New.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PrintTime {
+    /// The length of the line that was timed.
+    pub bytes: u32,
+    /// From the call to its return, in microseconds.
+    pub us: u32,
+}
+
+impl Display for PrintTime {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "con: {}-byte print took {} us\r\n", self.bytes, self.us)
     }
 }
 

@@ -492,6 +492,25 @@ fn heartbeat() {
 }
 
 #[test]
+fn print_test() {
+    let line = PrintTest.to_string();
+    assert_eq!(line.len(), PRINT_TEST_BYTES);
+    assert!(line.starts_with("con: print test 0123456789012"));
+    // 282 digits: 28 whole runs, then "01".
+    assert!(line.ends_with("678901\r\n"), "{line}");
+    // It is the long line the console must still take whole.
+    assert!(line.len() < argus_fw_core::console::MSG_MAX);
+}
+
+#[test]
+fn print_time() {
+    assert_eq!(
+        PrintTime { bytes: 300, us: 7 }.to_string(),
+        "con: 300-byte print took 7 us\r\n"
+    );
+}
+
+#[test]
 fn panic_line() {
     assert_eq!(
         Panic {
