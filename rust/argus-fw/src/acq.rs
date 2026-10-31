@@ -87,20 +87,12 @@ const _: () = {
 static TAKEN: AtomicBool = AtomicBool::new(false);
 
 /// The one handle on the acquisition registers.
-#[expect(
-    dead_code,
-    reason = "the acquisition smoke test and the feature task are its first users"
-)]
 pub struct Acq {
     regs: MmioRegisters<'static>,
 }
 
 /// The two words of one channel's FEATURE entry, as read.
 #[derive(Clone, Copy, Debug)]
-#[expect(
-    dead_code,
-    reason = "the acquisition smoke test and the feature task are its first users"
-)]
 pub struct FeatureWords {
     /// Bits 31:0 of the sum of squares.
     pub lo: u32,
@@ -108,26 +100,89 @@ pub struct FeatureWords {
     pub hi: u32,
 }
 
-#[expect(
-    dead_code,
-    reason = "the acquisition smoke test and the feature task are its first users"
-)]
-impl FeatureWords {
-    /// The bin's threshold crossings.
-    pub const fn count(self) -> u16 {
-        acq::feature_count(self.hi)
+/// STATUS never showed the held bit within [`acq::HOLD_SPIN_MAX`] polls.
+/// The hold has been released; the caller prints its "hold never took
+/// effect" line or counts a skip.
+#[derive(Clone, Copy, Debug)]
+pub struct HoldTimeout;
+
+impl Acq {
+    /// Freezes a read bank, runs `read` on it, and releases it: the C's
+    /// hold handshake, shared by [`Self::read_frame`] and
+    /// [`Self::read_features`].
+    ///
+    /// Sets `hold` in CTRL, polls STATUS until `held` shows (the write does
+    /// not take effect at once: one last bank swap can land on the clock
+    /// domain crossing), runs `read`, and writes CTRL back as it was. CTRL
+    /// is read back rather than rebuilt, since enable and ext_mode are
+    /// live. The restore happens on both paths, so a timeout never leaves
+    /// the bank frozen.
+    ///
+    /// This blocks the executor for the whole hold: up to about 0.2 ms for
+    /// the features, longer only if the fabric never answers. A hold has to
+    /// be short and unbroken, so it is not split across awaits; the replay
+    /// half period it competes with is 4.9 ms.
+    fn with_hold<T>(
+        &mut self,
+        hold: u32,
+        held: u32,
+        read: impl FnOnce(&Self) -> T,
+    ) -> Result<T, HoldTimeout> {
+        let ctrl = self.ctrl();
+        self.write_ctrl(ctrl | hold);
+
+        // One poll is one GP0 read, about 1 us.
+        let took = (0..=acq::HOLD_SPIN_MAX).any(|_| self.status() & held != 0);
+
+        let result = took.then(|| read(self));
+        self.write_ctrl(ctrl);
+        result.ok_or(HoldTimeout)
     }
 
-    /// The bin's mean square, as the telemetry frame carries it.
-    pub const fn power(self) -> u32 {
-        acq::feature_power(self.hi, self.lo)
+    /// The C's `acq_read_frame()`: FRAME_INDEX and the 96 samples of the
+    /// frame in the bank, read under CTRL.hold.
+    ///
+    /// The C began with a seqlock, which could never work: 96 reads at
+    /// about 1.1 us each take 114 us against a 33.3 us sweep, so every read
+    /// tore. Under the hold the assembler keeps filling its own bank and
+    /// discards what it completes, so a read costs about four frames.
+    pub fn read_frame(&mut self) -> Result<(u32, [u16; CHANNELS]), HoldTimeout> {
+        self.with_hold(acq::ctrl::HOLD, acq::status::HELD, |regs| {
+            let frame_index = regs.frame_index();
+            let mut frame = [0u16; CHANNELS];
+            for (n, sample) in frame.iter_mut().enumerate() {
+                *sample = regs.frame(n).unwrap_or(0);
+            }
+            (frame_index, frame)
+        })
+    }
+
+    /// The C's `acq_read_features()`: FEATURE_INDEX and the 192 FEATURE
+    /// words, decoded, read under CTRL.feat_hold. 192 reads are about
+    /// 0.2 ms against a 50 ms bin, and a bin that completes under the hold
+    /// is deferred rather than lost.
+    pub fn read_features(&mut self) -> Result<acq::Features, HoldTimeout> {
+        self.with_hold(acq::ctrl::FEAT_HOLD, acq::status::FEAT_HELD, |regs| {
+            let mut features = acq::Features::new(regs.feature_index());
+            for n in 0..CHANNELS {
+                if let Some(words) = regs.feature(n) {
+                    features.set(n, words.hi, words.lo);
+                }
+            }
+            features
+        })
+    }
+
+    /// Whether CTRL.ext_mode is set: the chips play the replay BRAM, and
+    /// the frame check has no expected index.
+    pub fn ext_mode(&self) -> bool {
+        self.ctrl() & acq::ctrl::EXT_MODE != 0
     }
 }
 
 #[expect(
     dead_code,
-    reason = "the acquisition smoke test, the feature task and the replay stream \
-              are its first users"
+    reason = "the replay stream is the first user of the replay registers"
 )]
 impl Acq {
     /// The handle, the first time this is called; `None` after that.

@@ -2,10 +2,12 @@
 //!
 //! For now: the HAL, embassy-time on the global timer and the console. It
 //! prints the banner the harness anchors on, the C's first line, the clocks
-//! as the registers set them, a timed long print, the C's replay clock
-//! check, and then a heartbeat every 5 s. Every print goes through the console ring and returns at
-//! once; a task of its own feeds the UART. A panic or a CPU exception
-//! prints one line saying what and where, then parks the core.
+//! as the registers set them, a timed long print and the C's replay clock
+//! check; runs the C's acquisition smoke test; then starts the feature loop
+//! and prints a heartbeat every 5 s. Every print goes through the console
+//! ring and returns at once; a task of its own feeds the UART. A panic or a
+//! CPU exception prints one line saying what and where, then parks the
+//! core.
 //!
 //! Errors before the console exists park the core silently, because there
 //! is nowhere to say anything; the workspace lints deny `unwrap`, so each
@@ -15,6 +17,7 @@
 #![no_main]
 
 mod acq;
+mod acq_check;
 mod bram;
 mod console;
 
@@ -96,6 +99,16 @@ async fn main(spawner: Spawner) -> ! {
     time_a_long_print();
     check_clock(clocks.arm_clocks().cpu_3x2x_clk()).await;
 
+    // Before any networking: see acq_check.
+    let Some(mut acq) = acq::Acq::take() else {
+        park()
+    };
+    acq_check::smoke_test(&mut acq, clocks.arm_clocks().cpu_3x2x_clk()).await;
+    let Ok(feature_loop) = acq_check::feature_loop(acq) else {
+        park()
+    };
+    spawner.spawn(feature_loop);
+
     let mut ticker = Ticker::every(HEARTBEAT_PERIOD);
     let mut beats: u32 = 0;
     loop {
@@ -152,7 +165,7 @@ async fn check_clock(gtc_hz: Hertz) {
 
 /// The global timer's 64-bit count. It counts CPU_3x2x cycles: the time
 /// driver set its prescaler to 0 when it took the timer.
-fn read_global_timer() -> u64 {
+pub(crate) fn read_global_timer() -> u64 {
     // SAFETY: this handle only reads the two count registers, which the
     // time driver never writes after enabling the timer; reading them races
     // with nothing (the HAL's own `now()` steals the timer the same way).
